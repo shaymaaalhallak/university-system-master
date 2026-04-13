@@ -1,0 +1,216 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.runMigrations = runMigrations;
+const db_1 = __importDefault(require("./db"));
+const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => err ? reject(err) : resolve(results)));
+const columnExists = async (table, column) => {
+    const rows = await query(`SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, column]);
+    return rows[0].cnt > 0;
+};
+const tableExists = async (table) => {
+    const rows = await query(`SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [table]);
+    return rows[0].cnt > 0;
+};
+const indexExists = async (table, index) => {
+    const rows = await query(`SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`, [table, index]);
+    return rows[0].cnt > 0;
+};
+async function runMigrations() {
+    console.log("Running database migrations...");
+    try {
+        if (!(await columnExists("users", "block_reason"))) {
+            await query("ALTER TABLE `users` ADD COLUMN `block_reason` varchar(500) DEFAULT NULL AFTER `status`");
+            console.log("  Added users.block_reason");
+        }
+        if (!(await columnExists("professors", "cv_url"))) {
+            await query("ALTER TABLE `professors` ADD COLUMN `cv_url` text DEFAULT NULL");
+            console.log("  Added professors.cv_url");
+        }
+        if (!(await tableExists("enrollments"))) {
+            await query(`
+        CREATE TABLE \`enrollments\` (
+          \`enrollment_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`section_id\` int(11) NOT NULL,
+          \`enrolled_at\` timestamp DEFAULT current_timestamp(),
+          \`status\` enum('active','dropped','completed') DEFAULT 'active',
+          PRIMARY KEY (\`enrollment_id\`),
+          UNIQUE KEY \`unique_enrollment\` (\`student_id\`, \`section_id\`),
+          KEY \`student_id\` (\`student_id\`),
+          KEY \`section_id\` (\`section_id\`),
+          CONSTRAINT \`enrollments_ibfk_1\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`),
+          CONSTRAINT \`enrollments_ibfk_2\` FOREIGN KEY (\`section_id\`) REFERENCES \`course_sections\` (\`section_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created enrollments table");
+        }
+        if (!(await tableExists("prerequisites"))) {
+            await query(`
+        CREATE TABLE \`prerequisites\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`course_id\` int(11) NOT NULL,
+          \`required_course_id\` int(11) NOT NULL,
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`unique_prereq\` (\`course_id\`, \`required_course_id\`),
+          CONSTRAINT \`prerequisites_ibfk_1\` FOREIGN KEY (\`course_id\`) REFERENCES \`courses\` (\`course_id\`),
+          CONSTRAINT \`prerequisites_ibfk_2\` FOREIGN KEY (\`required_course_id\`) REFERENCES \`courses\` (\`course_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created prerequisites table");
+        }
+        if (!(await tableExists("audit_logs"))) {
+            await query(`
+        CREATE TABLE \`audit_logs\` (
+          \`log_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`user_id\` int(11) NOT NULL,
+          \`action\` enum('login','logout') NOT NULL,
+          \`ip_address\` varchar(45) DEFAULT NULL,
+          \`user_agent\` varchar(255) DEFAULT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`log_id\`),
+          KEY \`user_id\` (\`user_id\`),
+          CONSTRAINT \`audit_logs_ibfk_1\` FOREIGN KEY (\`user_id\`) REFERENCES \`users\` (\`user_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created audit_logs table");
+        }
+        if (!(await tableExists("exam_exemptions"))) {
+            await query(`
+        CREATE TABLE \`exam_exemptions\` (
+          \`exemption_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`exam_id\` int(11) NOT NULL,
+          \`reason\` text NOT NULL,
+          \`status\` enum('pending','approved','rejected') DEFAULT 'pending',
+          \`admin_note\` text DEFAULT NULL,
+          \`requested_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`exemption_id\`),
+          KEY \`student_id\` (\`student_id\`),
+          KEY \`exam_id\` (\`exam_id\`),
+          CONSTRAINT \`exemptions_ibfk_1\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`),
+          CONSTRAINT \`exemptions_ibfk_2\` FOREIGN KEY (\`exam_id\`) REFERENCES \`exams\` (\`exam_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created exam_exemptions table");
+        }
+        if (!(await tableExists("grade_entry_control"))) {
+            await query(`
+        CREATE TABLE \`grade_entry_control\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`section_id\` int(11) NOT NULL,
+          \`is_enabled\` tinyint(1) DEFAULT 0,
+          \`assignment_label\` varchar(100) DEFAULT 'Assignments',
+          \`midterm_label\` varchar(100) DEFAULT 'Midterm',
+          \`final_label\` varchar(100) DEFAULT 'Final Exam',
+          \`assignment_weight\` int(11) DEFAULT 30,
+          \`midterm_weight\` int(11) DEFAULT 30,
+          \`final_weight\` int(11) DEFAULT 40,
+          \`enabled_by\` int(11) DEFAULT NULL,
+          \`updated_at\` timestamp DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`unique_section\` (\`section_id\`),
+          CONSTRAINT \`gec_ibfk_1\` FOREIGN KEY (\`section_id\`) REFERENCES \`course_sections\` (\`section_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created grade_entry_control table");
+        }
+        if (!(await columnExists("grade_entry_control", "assignment_label"))) {
+            await query("ALTER TABLE `grade_entry_control` ADD COLUMN `assignment_label` varchar(100) DEFAULT 'Assignments' AFTER `is_enabled`");
+            console.log("  Added grade_entry_control.assignment_label");
+        }
+        if (!(await columnExists("grade_entry_control", "midterm_label"))) {
+            await query("ALTER TABLE `grade_entry_control` ADD COLUMN `midterm_label` varchar(100) DEFAULT 'Midterm' AFTER `assignment_label`");
+            console.log("  Added grade_entry_control.midterm_label");
+        }
+        if (!(await columnExists("grade_entry_control", "final_label"))) {
+            await query("ALTER TABLE `grade_entry_control` ADD COLUMN `final_label` varchar(100) DEFAULT 'Final Exam' AFTER `midterm_label`");
+            console.log("  Added grade_entry_control.final_label");
+        }
+        if (!(await columnExists("grade_entry_control", "assignment_weight"))) {
+            await query("ALTER TABLE `grade_entry_control` ADD COLUMN `assignment_weight` int(11) DEFAULT 30 AFTER `final_label`");
+            console.log("  Added grade_entry_control.assignment_weight");
+        }
+        if (!(await columnExists("grade_entry_control", "midterm_weight"))) {
+            await query("ALTER TABLE `grade_entry_control` ADD COLUMN `midterm_weight` int(11) DEFAULT 30 AFTER `assignment_weight`");
+            console.log("  Added grade_entry_control.midterm_weight");
+        }
+        if (!(await columnExists("grade_entry_control", "final_weight"))) {
+            await query("ALTER TABLE `grade_entry_control` ADD COLUMN `final_weight` int(11) DEFAULT 40 AFTER `midterm_weight`");
+            console.log("  Added grade_entry_control.final_weight");
+        }
+        if (!(await tableExists("grade_components"))) {
+            await query(`
+        CREATE TABLE \`grade_components\` (
+          \`component_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`section_id\` int(11) NOT NULL,
+          \`component_name\` varchar(100) NOT NULL,
+          \`weight\` int(11) NOT NULL,
+          \`display_order\` int(11) NOT NULL DEFAULT 0,
+          PRIMARY KEY (\`component_id\`),
+          KEY \`gc_section_id\` (\`section_id\`),
+          CONSTRAINT \`gc_section_fk\` FOREIGN KEY (\`section_id\`) REFERENCES \`course_sections\` (\`section_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created grade_components table");
+        }
+        if (!(await tableExists("grade_component_scores"))) {
+            await query(`
+        CREATE TABLE \`grade_component_scores\` (
+          \`component_score_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`grade_id\` int(11) NOT NULL,
+          \`component_id\` int(11) NOT NULL,
+          \`score\` decimal(5,2) NOT NULL DEFAULT 0,
+          PRIMARY KEY (\`component_score_id\`),
+          UNIQUE KEY \`unique_grade_component\` (\`grade_id\`, \`component_id\`),
+          KEY \`gcs_component_id\` (\`component_id\`),
+          CONSTRAINT \`gcs_grade_fk\` FOREIGN KEY (\`grade_id\`) REFERENCES \`grades\` (\`grade_id\`) ON DELETE CASCADE,
+          CONSTRAINT \`gcs_component_fk\` FOREIGN KEY (\`component_id\`) REFERENCES \`grade_components\` (\`component_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created grade_component_scores table");
+        }
+        if (!(await tableExists("announcements"))) {
+            await query(`
+        CREATE TABLE \`announcements\` (
+          \`announcement_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`title\` varchar(150) NOT NULL,
+          \`content\` text NOT NULL,
+          \`author_id\` int(11) NOT NULL,
+          \`target_roles\` varchar(100) DEFAULT 'student,professor,admin',
+          \`priority\` enum('low','medium','high') DEFAULT 'medium',
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          \`expires_at\` date DEFAULT NULL,
+          PRIMARY KEY (\`announcement_id\`),
+          KEY \`author_id\` (\`author_id\`),
+          CONSTRAINT \`announcements_ibfk_1\` FOREIGN KEY (\`author_id\`) REFERENCES \`users\` (\`user_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created announcements table");
+        }
+        if (!(await columnExists("assignments", "attachment_url"))) {
+            await query("ALTER TABLE `assignments` ADD COLUMN `attachment_url` text DEFAULT NULL AFTER `description`");
+            console.log("  Added assignments.attachment_url");
+        }
+        if (!(await indexExists("grades", "unique_student_section_grade"))) {
+            await query(`
+        DELETE g1 FROM grades g1
+        INNER JOIN grades g2
+          ON g1.student_id = g2.student_id
+         AND g1.section_id = g2.section_id
+         AND g1.grade_id < g2.grade_id
+      `);
+            await query("ALTER TABLE `grades` ADD UNIQUE KEY `unique_student_section_grade` (`student_id`, `section_id`)");
+            console.log("  Added grades unique_student_section_grade");
+        }
+        console.log("Migrations complete");
+    }
+    catch (err) {
+        console.error("Migration failed:", err.message);
+    }
+}
