@@ -3,15 +3,18 @@ import db from "./db";
 const query = (sql: string, params: any[] = []): Promise<any> =>
   new Promise((resolve, reject) =>
     db.query(sql, params, (err: any, results: any) =>
-      err ? reject(err) : resolve(results)
-    )
+      err ? reject(err) : resolve(results),
+    ),
   );
 
-const columnExists = async (table: string, column: string): Promise<boolean> => {
+const columnExists = async (
+  table: string,
+  column: string,
+): Promise<boolean> => {
   const rows = await query(
     `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
-    [table, column]
+    [table, column],
   );
   return rows[0].cnt > 0;
 };
@@ -20,7 +23,7 @@ const tableExists = async (table: string): Promise<boolean> => {
   const rows = await query(
     `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
-    [table]
+    [table],
   );
   return rows[0].cnt > 0;
 };
@@ -29,7 +32,7 @@ const indexExists = async (table: string, index: string): Promise<boolean> => {
   const rows = await query(
     `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.STATISTICS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
-    [table, index]
+    [table, index],
   );
   return rows[0].cnt > 0;
 };
@@ -40,14 +43,14 @@ export async function runMigrations() {
   try {
     if (!(await columnExists("users", "block_reason"))) {
       await query(
-        "ALTER TABLE `users` ADD COLUMN `block_reason` varchar(500) DEFAULT NULL AFTER `status`"
+        "ALTER TABLE `users` ADD COLUMN `block_reason` varchar(500) DEFAULT NULL AFTER `status`",
       );
       console.log("  Added users.block_reason");
     }
 
     if (!(await columnExists("professors", "cv_url"))) {
       await query(
-        "ALTER TABLE `professors` ADD COLUMN `cv_url` text DEFAULT NULL"
+        "ALTER TABLE `professors` ADD COLUMN `cv_url` text DEFAULT NULL",
       );
       console.log("  Added professors.cv_url");
     }
@@ -147,42 +150,42 @@ export async function runMigrations() {
 
     if (!(await columnExists("grade_entry_control", "assignment_label"))) {
       await query(
-        "ALTER TABLE `grade_entry_control` ADD COLUMN `assignment_label` varchar(100) DEFAULT 'Assignments' AFTER `is_enabled`"
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `assignment_label` varchar(100) DEFAULT 'Assignments' AFTER `is_enabled`",
       );
       console.log("  Added grade_entry_control.assignment_label");
     }
 
     if (!(await columnExists("grade_entry_control", "midterm_label"))) {
       await query(
-        "ALTER TABLE `grade_entry_control` ADD COLUMN `midterm_label` varchar(100) DEFAULT 'Midterm' AFTER `assignment_label`"
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `midterm_label` varchar(100) DEFAULT 'Midterm' AFTER `assignment_label`",
       );
       console.log("  Added grade_entry_control.midterm_label");
     }
 
     if (!(await columnExists("grade_entry_control", "final_label"))) {
       await query(
-        "ALTER TABLE `grade_entry_control` ADD COLUMN `final_label` varchar(100) DEFAULT 'Final Exam' AFTER `midterm_label`"
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `final_label` varchar(100) DEFAULT 'Final Exam' AFTER `midterm_label`",
       );
       console.log("  Added grade_entry_control.final_label");
     }
 
     if (!(await columnExists("grade_entry_control", "assignment_weight"))) {
       await query(
-        "ALTER TABLE `grade_entry_control` ADD COLUMN `assignment_weight` int(11) DEFAULT 30 AFTER `final_label`"
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `assignment_weight` int(11) DEFAULT 30 AFTER `final_label`",
       );
       console.log("  Added grade_entry_control.assignment_weight");
     }
 
     if (!(await columnExists("grade_entry_control", "midterm_weight"))) {
       await query(
-        "ALTER TABLE `grade_entry_control` ADD COLUMN `midterm_weight` int(11) DEFAULT 30 AFTER `assignment_weight`"
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `midterm_weight` int(11) DEFAULT 30 AFTER `assignment_weight`",
       );
       console.log("  Added grade_entry_control.midterm_weight");
     }
 
     if (!(await columnExists("grade_entry_control", "final_weight"))) {
       await query(
-        "ALTER TABLE `grade_entry_control` ADD COLUMN `final_weight` int(11) DEFAULT 40 AFTER `midterm_weight`"
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `final_weight` int(11) DEFAULT 40 AFTER `midterm_weight`",
       );
       console.log("  Added grade_entry_control.final_weight");
     }
@@ -241,7 +244,7 @@ export async function runMigrations() {
 
     if (!(await columnExists("assignments", "attachment_url"))) {
       await query(
-        "ALTER TABLE `assignments` ADD COLUMN `attachment_url` text DEFAULT NULL AFTER `description`"
+        "ALTER TABLE `assignments` ADD COLUMN `attachment_url` text DEFAULT NULL AFTER `description`",
       );
       console.log("  Added assignments.attachment_url");
     }
@@ -255,11 +258,65 @@ export async function runMigrations() {
          AND g1.grade_id < g2.grade_id
       `);
       await query(
-        "ALTER TABLE `grades` ADD UNIQUE KEY `unique_student_section_grade` (`student_id`, `section_id`)"
+        "ALTER TABLE `grades` ADD UNIQUE KEY `unique_student_section_grade` (`student_id`, `section_id`)",
       );
       console.log("  Added grades unique_student_section_grade");
     }
+    // ── professor_course_eligibility table ──────────────────────────────────
+    if (!(await tableExists("professor_course_eligibility"))) {
+      await query(`
+        CREATE TABLE \`professor_course_eligibility\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`professor_id\` int(11) NOT NULL,
+          \`course_id\` int(11) NOT NULL,
+          \`eligibility_type\` enum('primary','secondary') DEFAULT 'secondary',
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`uniq_prof_course\` (\`professor_id\`, \`course_id\`),
+          KEY \`idx_pce_course\` (\`course_id\`),
+          CONSTRAINT \`pce_prof_fk\` FOREIGN KEY (\`professor_id\`) REFERENCES \`professors\` (\`professor_id\`) ON DELETE CASCADE,
+          CONSTRAINT \`pce_course_fk\` FOREIGN KEY (\`course_id\`) REFERENCES \`courses\` (\`course_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  Created professor_course_eligibility table");
+    }
+    // ── study_plans table ────────────────────────────────────────────────────
+    if (!(await tableExists("study_plans"))) {
+      await query(`
+        CREATE TABLE \`study_plans\` (
+          \`plan_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`plan_name\` varchar(150) NOT NULL,
+          \`department_id\` int(11) DEFAULT NULL,
+          \`program_id\` int(11) DEFAULT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`plan_id\`),
+          KEY \`idx_sp_department\` (\`department_id\`),
+          KEY \`idx_sp_program\` (\`program_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created study_plans table");
+    }
 
+    // ── study_plan_courses table ─────────────────────────────────────────────
+    if (!(await tableExists("study_plan_courses"))) {
+      await query(`
+        CREATE TABLE \`study_plan_courses\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`plan_id\` int(11) NOT NULL,
+          \`course_id\` int(11) NOT NULL,
+          \`year_no\` int(11) NOT NULL,
+          \`semester_no\` int(11) NOT NULL,
+          \`is_required\` tinyint(1) DEFAULT 1,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`uniq_plan_course\` (\`plan_id\`, \`course_id\`),
+          KEY \`idx_spc_course\` (\`course_id\`),
+          CONSTRAINT \`spc_plan_fk\` FOREIGN KEY (\`plan_id\`) REFERENCES \`study_plans\` (\`plan_id\`) ON DELETE CASCADE,
+          CONSTRAINT \`spc_course_fk\` FOREIGN KEY (\`course_id\`) REFERENCES \`courses\` (\`course_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created study_plan_courses table");
+    }
     console.log("Migrations complete");
   } catch (err: any) {
     console.error("Migration failed:", err.message);
