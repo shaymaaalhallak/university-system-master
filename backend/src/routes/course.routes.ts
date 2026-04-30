@@ -31,7 +31,19 @@ const columnExists = async (
   );
   return Number(rows?.[0]?.cnt || 0) > 0;
 };
-
+const isColumnNullable = async (
+  tableName: string,
+  columnName: string,
+): Promise<boolean> => {
+  const rows = await query(
+    `SELECT IS_NULLABLE AS is_nullable
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+     LIMIT 1`,
+    [tableName, columnName],
+  );
+  return String(rows?.[0]?.is_nullable || "YES").toUpperCase() === "YES";
+};
 // GET /api/courses — All authenticated users
 router.get("/", verifyToken, async (req: Request, res: Response) => {
   try {
@@ -250,6 +262,31 @@ router.get(
     }
   },
 );
+// GET /api/courses/study-plans — list study plans
+router.get(
+  "/study-plans",
+  verifyToken,
+  requireRole("admin"),
+  async (_req: Request, res: Response) => {
+    try {
+      const rows = await query(
+        `SELECT sp.plan_id, sp.plan_name, sp.department_id, sp.program_id, sp.created_at,
+              d.department_name, p.program_name,
+              COUNT(spc.id) AS courses_count
+       FROM study_plans sp
+       LEFT JOIN departments d ON sp.department_id = d.department_id
+       LEFT JOIN programs p ON sp.program_id = p.program_id
+       LEFT JOIN study_plan_courses spc ON sp.plan_id = spc.plan_id
+       GROUP BY sp.plan_id, sp.plan_name, sp.department_id, sp.program_id, sp.created_at, d.department_name, p.program_name
+       ORDER BY sp.plan_name`,
+      );
+      return res.json({ success: true, data: rows });
+    } catch (error) {
+      console.error("Study-plans list error:", error);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
 // POST /api/courses/study-plans — create study plan
 router.post(
   "/study-plans",
@@ -262,25 +299,99 @@ router.post(
         return res
           .status(400)
           .json({ success: false, message: "planName is required" });
+      if (!(await tableExists("study_plans"))) {
+        await query(`
+          CREATE TABLE \`study_plans\` (
+            \`plan_id\` int(11) NOT NULL AUTO_INCREMENT,
+            \`plan_name\` varchar(150) NOT NULL,
+            \`department_id\` int(11) DEFAULT NULL,
+            \`program_id\` int(11) DEFAULT NULL,
+            \`created_at\` timestamp DEFAULT current_timestamp(),
+            PRIMARY KEY (\`plan_id\`),
+            KEY \`idx_sp_department\` (\`department_id\`),
+            KEY \`idx_sp_program\` (\`program_id\`)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+      }
       const [hasDepartmentColumn, hasProgramColumn] = await Promise.all([
         columnExists("study_plans", "department_id"),
         columnExists("study_plans", "program_id"),
       ]);
+      const [departmentIsNullable, programIsNullable] = await Promise.all([
+        hasDepartmentColumn
+          ? isColumnNullable("study_plans", "department_id")
+          : Promise.resolve(true),
+        hasProgramColumn
+          ? isColumnNullable("study_plans", "program_id")
+          : Promise.resolve(true),
+      ]);
+      const hasPlanNameColumn = await columnExists("study_plans", "plan_name");
+      const planNameColumn = hasPlanNameColumn ? "plan_name" : "name";
+      const parsedDepartmentId =
+        departmentId === undefined ||
+        departmentId === null ||
+        departmentId === ""
+          ? null
+          : Number(departmentId);
+      const parsedProgramId =
+        programId === undefined || programId === null || programId === ""
+          ? null
+          : Number(programId);
+      let safeDepartmentId =
+        Number.isFinite(parsedDepartmentId) && parsedDepartmentId! > 0
+          ? parsedDepartmentId
+          : null;
+      let safeProgramId =
+        Number.isFinite(parsedProgramId) && parsedProgramId! > 0
+          ? parsedProgramId
+          : null;
 
-      const columns = ["plan_name"];
+      if (safeDepartmentId !== null) {
+        const departmentRows = await query(
+          "SELECT department_id FROM departments WHERE department_id = ? LIMIT 1",
+          [safeDepartmentId],
+        );
+        if (!departmentRows.length) safeDepartmentId = null;
+      }
+      if (safeProgramId !== null) {
+        const programRows = await query(
+          "SELECT program_id FROM programs WHERE program_id = ? LIMIT 1",
+          [safeProgramId],
+        );
+        if (!programRows.length) safeProgramId = null;
+      }
+      if (
+        hasDepartmentColumn &&
+        !departmentIsNullable &&
+        safeDepartmentId === null
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "A valid department is required for this study-plans schema.",
+        });
+      }
+      if (hasProgramColumn && !programIsNullable && safeProgramId === null) {
+        return res.status(400).json({
+          success: false,
+          message: "A valid program is required for this study-plans schema.",
+        });
+      }
+      const columns = [planNameColumn];
       const placeholders = ["?"];
       const values: any[] = [planName];
 
       if (hasDepartmentColumn) {
         columns.push("department_id");
         placeholders.push("?");
-        values.push(departmentId || null);
+        values.push(safeDepartmentId);
       }
       if (hasProgramColumn) {
         columns.push("program_id");
         placeholders.push("?");
-        values.push(programId || null);
+        values.push(safeProgramId);
       }
+
       let insert: any;
       try {
         insert = await query(
@@ -289,12 +400,46 @@ router.post(
         );
       } catch (insertError: any) {
         if (columns.length > 1) {
-          insert = await query(
-            "INSERT INTO study_plans (plan_name) VALUES (?)",
-            [planName],
-          );
+          try {
+            const fallbackColumns = [planNameColumn];
+            const fallbackPlaceholders = ["?"];
+            const fallbackValues: any[] = [planName];
+            if (hasDepartmentColumn) {
+              fallbackColumns.push("department_id");
+              fallbackPlaceholders.push("?");
+              fallbackValues.push(null);
+            }
+            if (hasProgramColumn) {
+              fallbackColumns.push("program_id");
+              fallbackPlaceholders.push("?");
+              fallbackValues.push(null);
+            }
+            insert = await query(
+              `INSERT INTO study_plans (${fallbackColumns.join(", ")}) VALUES (${fallbackPlaceholders.join(", ")})`,
+              fallbackValues,
+            );
+          } catch (fallbackInsertError: any) {
+            console.error(
+              "Create study plan fallback insert error:",
+              fallbackInsertError,
+            );
+            return res.status(400).json({
+              success: false,
+              message:
+                fallbackInsertError?.sqlMessage ||
+                fallbackInsertError?.message ||
+                "Unable to create study plan",
+            });
+          }
         } else {
-          throw insertError;
+          console.error("Create study plan primary insert error:", insertError);
+          return res.status(400).json({
+            success: false,
+            message:
+              insertError?.sqlMessage ||
+              insertError?.message ||
+              "Unable to create study plan",
+          });
         }
       }
       return res
