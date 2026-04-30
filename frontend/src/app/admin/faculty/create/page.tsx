@@ -20,6 +20,7 @@ const initial: FacultyFormValues = {
   password: "",
   phone: "",
   departmentId: "",
+  degreeProgramId: "",
   title: "Professor",
   hireDate: new Date().toISOString().slice(0, 10),
 };
@@ -46,8 +47,10 @@ export default function CreateFacultyPage() {
   }, [user?.role]);
 
   const createProfessor = async () => {
-    if (!form.firstName || !form.lastName || !form.email)
-      return alert("Please complete required fields");
+    if (!form.firstName || !form.lastName || !form.degreeProgramId)
+      return alert(
+        "Please complete required fields (including degree program)",
+      );
     setSaving(true);
     try {
       const res = await api.post<ApiResponse<{ userId: number }>>(
@@ -57,7 +60,13 @@ export default function CreateFacultyPage() {
           departmentId: form.departmentId || null,
         },
       );
-      if (res.success) router.push(`/admin/faculty/${res.data.userId}`);
+      if (res.success) {
+        const credentials = res.data as any;
+        alert(
+          `Professor created.\nEmail: ${credentials.generatedEmail}\nPassword: ${credentials.generatedPassword}\n\nShare these credentials securely. Professor will be forced to change password on first login.`,
+        );
+        router.push(`/admin/faculty/${res.data.userId}`);
+      }
     } catch (e: any) {
       alert(e?.response?.data?.message || "Failed to create professor");
     } finally {
@@ -80,6 +89,7 @@ export default function CreateFacultyPage() {
         onSubmit={createProfessor}
         submitLabel="Create Professor"
         includePassword
+        autoGenerateCredentials
         loading={saving}
       />
     </div>

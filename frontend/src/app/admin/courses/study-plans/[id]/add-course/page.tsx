@@ -12,6 +12,7 @@ type Course = {
   course_code: string;
   course_title: string;
   credits: number;
+  program_id?: number | null;
   department_name?: string | null;
   program_name?: string | null;
 };
@@ -25,6 +26,7 @@ export default function AddCourseToPlanPage() {
   const [yearNo, setYearNo] = useState("1");
   const [semesterNo, setSemesterNo] = useState("1");
   const [isRequired, setIsRequired] = useState(true);
+  const [courseBucket, setCourseBucket] = useState("major");
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -52,6 +54,11 @@ export default function AddCourseToPlanPage() {
     const q = search.toLowerCase();
     return courses.filter((course) => {
       if (usedCourseIds.has(course.course_id)) return false;
+      const sameProgram =
+        !plan?.program_id ||
+        !course.program_name ||
+        Number(course.program_id || 0) === Number(plan.program_id);
+      if (!sameProgram && Number(course.program_id || 0) !== 0) return false;
       if (!q) return true;
       return (
         course.course_code.toLowerCase().includes(q) ||
@@ -74,6 +81,7 @@ export default function AddCourseToPlanPage() {
         yearNo: Number(yearNo || "1"),
         semesterNo: Number(semesterNo || "1"),
         isRequired,
+        courseBucket,
       });
       router.push(`/admin/courses/study-plans/${id}`);
     } catch (e: any) {
@@ -144,6 +152,16 @@ export default function AddCourseToPlanPage() {
             />
             Required Course
           </label>
+          <select
+            className="border border-[#DED7CB] bg-white rounded-lg p-2"
+            value={courseBucket}
+            onChange={(e) => setCourseBucket(e.target.value)}
+          >
+            <option value="major">Major Course</option>
+            <option value="english">English</option>
+            <option value="arabic">Arabic</option>
+            <option value="culture">Culture</option>
+          </select>
           <button
             onClick={addCourse}
             disabled={saving}

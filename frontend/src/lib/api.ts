@@ -39,7 +39,7 @@ class ApiClient {
         };
 
         if (
-          error.response?.status === 503 &&
+          (error.response?.status === 503 || error.response?.status === 404) &&
           originalConfig &&
           !originalConfig._retriedWithDirectApi &&
           originalConfig.baseURL === "/api"
@@ -95,7 +95,11 @@ class ApiClient {
         "Content-Type": "multipart/form-data",
       };
     }
-    const response: AxiosResponse<T> = await this.client.put(url, data, finalConfig);
+    const response: AxiosResponse<T> = await this.client.put(
+      url,
+      data,
+      finalConfig,
+    );
     return response.data;
   }
 
@@ -151,6 +155,8 @@ export const authApi = {
 
   resetPassword: (token: string, password: string) =>
     api.post("/auth/reset-password", { token, password }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post("/auth/change-password", { currentPassword, newPassword }),
 };
 
 // Users API
@@ -224,10 +230,8 @@ export const assignmentsApi = {
 
   deleteAssignment: (id: string) => api.delete(`/assignments/${id}`),
 
-  submitAssignment: (
-    assignmentId: string,
-    data: { fileUrl?: string },
-  ) => api.post(`/assignments/${assignmentId}/submit`, data),
+  submitAssignment: (assignmentId: string, data: { fileUrl?: string }) =>
+    api.post(`/assignments/${assignmentId}/submit`, data),
 
   gradeSubmission: (
     submissionId: string,
@@ -251,7 +255,8 @@ export const gradesApi = {
 
   calculateGPA: (studentId: string) => api.get(`/grades/${studentId}/gpa`),
 
-  getSectionGradeSetup: (sectionId: string) => api.get(`/grades/section/${sectionId}/setup`),
+  getSectionGradeSetup: (sectionId: string) =>
+    api.get(`/grades/section/${sectionId}/setup`),
 
   saveSectionGradeSetup: (
     sectionId: string,
@@ -261,7 +266,7 @@ export const gradesApi = {
         weight: number;
         order?: number;
       }>;
-    }
+    },
   ) => api.put(`/grades/section/${sectionId}/setup`, data),
 
   saveStudentGrade: (data: {
@@ -360,6 +365,5 @@ export const professorApi = {
 
   updateMyCv: (data: { cvUrl: string }) => api.put("/professor/cv", data),
 };
-
 
 export default api;

@@ -20,6 +20,7 @@ type ProfessorDetails = {
     email: string;
     phone: string | null;
     department_id: number | null;
+    degree_program_id: number | null;
     title: string | null;
     hire_date: string | null;
   };
@@ -38,6 +39,7 @@ export default function EditFacultyPage() {
     password: "",
     phone: "",
     departmentId: "",
+    degreeProgramId: "",
     title: "Professor",
     hireDate: "",
   });
@@ -62,6 +64,9 @@ export default function EditFacultyPage() {
           password: "",
           phone: p.phone || "",
           departmentId: p.department_id ? String(p.department_id) : "",
+          degreeProgramId: p.degree_program_id
+            ? String(p.degree_program_id)
+            : "",
           title: p.title || "Professor",
           hireDate: p.hire_date ? p.hire_date.slice(0, 10) : "",
         });

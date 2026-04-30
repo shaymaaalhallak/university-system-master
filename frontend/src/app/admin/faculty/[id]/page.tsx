@@ -39,6 +39,21 @@ const tabs = [
 ] as const;
 
 type Tab = (typeof tabs)[number];
+type SectionDraft = {
+  sectionName: string;
+  semester: string;
+  year: string;
+  room: string;
+  schedule: string;
+};
+
+const initialDraft: SectionDraft = {
+  sectionName: "",
+  semester: "Fall",
+  year: String(new Date().getFullYear()),
+  room: "",
+  schedule: "",
+};
 
 export default function FacultyDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -46,7 +61,13 @@ export default function FacultyDetailsPage() {
   const [data, setData] = useState<FacultyDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
+  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
+  const [sectionDrafts, setSectionDrafts] = useState<
+    Record<number, SectionDraft>
+  >({});
+  const [eligibilityCourseId, setEligibilityCourseId] = useState("");
+  const [eligibilityType, setEligibilityType] = useState("secondary");
+  const [actionError, setActionError] = useState("");
   const load = async () => {
     setLoading(true);
     setError("");
@@ -76,6 +97,118 @@ export default function FacultyDetailsPage() {
         100,
     );
   }, [data?.performance]);
+  const sectionsByCourse = useMemo(() => {
+    const map = new Map<number, any[]>();
+    (data?.sections || []).forEach((section) => {
+      const bucket = map.get(section.course_id) || [];
+      bucket.push(section);
+      map.set(section.course_id, bucket);
+    });
+    return map;
+  }, [data?.sections]);
+
+  const assignedCourses = useMemo(() => {
+    const catalog = data?.availableCourses || [];
+    const catalogMap = new Map(catalog.map((c) => [Number(c.course_id), c]));
+    return Array.from(sectionsByCourse.entries()).map(
+      ([courseId, sections]) => ({
+        courseId,
+        course: catalogMap.get(courseId) || sections[0],
+        sections,
+      }),
+    );
+  }, [data?.availableCourses, sectionsByCourse]);
+  const scheduleRows = useMemo(() => {
+    const direct = data?.schedule || [];
+    if (direct.length > 0) return direct;
+    return (data?.sections || []).map((section) => ({
+      course_code: section.course_code,
+      semester: section.semester,
+      year: section.year,
+      room: section.room || "-",
+      schedule: section.schedule_time || section.schedule || "-",
+    }));
+  }, [data?.schedule, data?.sections]);
+  const addCourseBlock = () => {
+    if (!selectedCourseId || !data) return;
+    const courseId = Number(selectedCourseId);
+    if (assignedCourses.some((c) => c.courseId === courseId)) return;
+
+    const selected = data.availableCourses.find(
+      (c) => Number(c.course_id) === courseId,
+    );
+    if (!selected) return;
+
+    setData({
+      ...data,
+      sections: [
+        ...data.sections,
+        {
+          section_id: `draft-${courseId}`,
+          course_id: courseId,
+          course_code: selected.course_code,
+          course_title: selected.course_title,
+          section_name: "",
+          semester: "Fall",
+          year: new Date().getFullYear(),
+          room: "",
+          schedule_time: "",
+          schedule: "",
+          isDraftCourse: true,
+        },
+      ],
+    });
+    setSelectedCourseId("");
+  };
+
+  const draftFor = (courseId: number) =>
+    sectionDrafts[courseId] || initialDraft;
+
+  const updateDraft = (
+    courseId: number,
+    key: keyof SectionDraft,
+    value: string,
+  ) => {
+    setSectionDrafts((current) => ({
+      ...current,
+      [courseId]: {
+        ...draftFor(courseId),
+        [key]: value,
+      },
+    }));
+  };
+
+  const addSection = async (courseId: number) => {
+    const draft = draftFor(courseId);
+    if (!draft.sectionName || !draft.semester || !draft.year) {
+      alert("Section name, semester, and year are required.");
+      return;
+    }
+    setActionError("");
+    try {
+      await api.post(`/users/professors/${id}/sections`, {
+        courseId,
+        sectionName: draft.sectionName,
+        semester: draft.semester,
+        year: Number(draft.year),
+        room: draft.room,
+        schedule: draft.schedule,
+      });
+
+      setSectionDrafts((current) => ({ ...current, [courseId]: initialDraft }));
+      await load();
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.message ||
+        "Unable to add this course to schedule right now.";
+      setActionError(message);
+    }
+  };
+
+  const removeSection = async (sectionId: number) => {
+    await api.delete(`/users/professors/${id}/sections/${sectionId}`);
+    await load();
+  };
 
   if (loading) return <div className="p-6">Loading professor details...</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
@@ -120,6 +253,11 @@ export default function FacultyDetailsPage() {
       </div>
 
       <div className="bg-[#FCFBF8] border border-[#E7E2D9] rounded-xl p-5">
+        {actionError && (
+          <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {actionError}
+          </p>
+        )}
         {tab === "Profile" && (
           <div className="space-y-2 text-sm">
             <Row k="Name" v={`${p.first_name} ${p.last_name}`} />
@@ -131,6 +269,7 @@ export default function FacultyDetailsPage() {
               k="Hire date"
               v={p.hire_date ? new Date(p.hire_date).toLocaleDateString() : "-"}
             />
+            <Row k="Degree Program" v={p.degree_program_name || "-"} />
             <div className="pt-3 flex gap-2">
               <Link
                 className="border border-[#DED7CB] bg-white rounded-lg px-3 py-2 hover:bg-[#F2EBDD]"
@@ -156,80 +295,197 @@ export default function FacultyDetailsPage() {
         )}
 
         {tab === "Courses & Sections" && (
-          <SimpleTable
-            headers={["Course", "Semester", "Year", "Room", "Schedule"]}
-            rows={(data.sections || []).map((s) => [
-              `${s.course_code} ${s.course_title}`,
-              s.semester,
-              s.year,
-              s.room || "-",
-              s.schedule || "-",
-            ])}
-            footer={
-              <button
-                className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
-                onClick={async () => {
-                  const courseId = prompt("Course ID");
-                  const semester = prompt("Semester (e.g. Fall)");
-                  const year = prompt("Year");
-                  const room = prompt("Room") || "";
-                  const schedule = prompt("Schedule") || "";
-                  if (!courseId || !semester || !year) return;
-                  await api.post(`/users/professors/${id}/sections`, {
-                    courseId,
-                    semester,
-                    year,
-                    room,
-                    schedule,
-                  });
-                  await load();
-                }}
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <select
+                className="border border-[#DED7CB] bg-white rounded-lg p-2"
+                value={selectedCourseId}
+                onChange={(e) => setSelectedCourseId(e.target.value)}
               >
-                Assign course / open section
+                <option value="">Select Course</option>
+                {(data.availableCourses || []).map((course) => (
+                  <option key={course.course_id} value={course.course_id}>
+                    {course.course_code} - {course.course_title}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={addCourseBlock}
+                className="bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+              >
+                Add Course
               </button>
-            }
-          />
-        )}
+            </div>
 
+            {assignedCourses.map(({ courseId, course, sections }) => {
+              const draft = draftFor(courseId);
+              const isPinned = sections.some(
+                (section) => typeof section.section_id === "number",
+              );
+              return (
+                <div
+                  key={courseId}
+                  className="rounded-lg border border-[#DED7CB] bg-white p-4 space-y-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold">
+                      Course: {course.course_code} - {course.course_title}
+                    </p>
+                    {isPinned ? (
+                      <span className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700">
+                        Pinned to Schedule
+                      </span>
+                    ) : (
+                      <button
+                        className="rounded-lg bg-[#7A263A] px-3 py-2 text-sm font-medium text-white"
+                        onClick={() => addSection(courseId)}
+                      >
+                        Pin Course to Schedule
+                      </button>
+                    )}
+                  </div>
+
+                  <SimpleTable
+                    headers={[
+                      "Section",
+                      "Semester",
+                      "Year",
+                      "Room",
+                      "Schedule",
+                      "Action",
+                    ]}
+                    rows={sections
+                      .filter((s) => typeof s.section_id === "number")
+                      .map((s) => [
+                        s.section_name || "-",
+                        s.semester,
+                        s.year,
+                        s.room || "-",
+                        s.schedule_time || s.schedule || "-",
+                        <button
+                          key={`del-${s.section_id}`}
+                          className="text-red-700"
+                          onClick={() => removeSection(Number(s.section_id))}
+                        >
+                          X
+                        </button>,
+                      ])}
+                  />
+
+                  <div className="grid gap-2 md:grid-cols-5">
+                    <input
+                      className="border rounded-lg p-2"
+                      placeholder="Section Name (A)"
+                      value={draft.sectionName}
+                      onChange={(e) =>
+                        updateDraft(courseId, "sectionName", e.target.value)
+                      }
+                    />
+                    <input
+                      className="border rounded-lg p-2"
+                      placeholder="Semester"
+                      value={draft.semester}
+                      onChange={(e) =>
+                        updateDraft(courseId, "semester", e.target.value)
+                      }
+                    />
+                    <input
+                      className="border rounded-lg p-2"
+                      placeholder="Year"
+                      value={draft.year}
+                      onChange={(e) =>
+                        updateDraft(courseId, "year", e.target.value)
+                      }
+                    />
+                    <input
+                      className="border rounded-lg p-2"
+                      placeholder="Room"
+                      value={draft.room}
+                      onChange={(e) =>
+                        updateDraft(courseId, "room", e.target.value)
+                      }
+                    />
+                    <input
+                      className="border rounded-lg p-2"
+                      placeholder="Schedule"
+                      value={draft.schedule}
+                      onChange={(e) =>
+                        updateDraft(courseId, "schedule", e.target.value)
+                      }
+                    />
+                  </div>
+                  <button
+                    className="bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+                    onClick={() => addSection(courseId)}
+                  >
+                    + Add Section
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {tab === "Course Eligibility" && (
-          <SimpleTable
-            headers={["Course", "Type", "Actions"]}
-            rows={(data.eligibility || []).map((e) => [
-              `${e.course_code} ${e.course_title}`,
-              e.eligibility_type || "secondary",
-              <button
-                key={e.course_id}
-                className="text-black"
-                onClick={() =>
-                  api
-                    .delete(
-                      `/users/professors/${id}/eligibility/${e.course_id}`,
-                    )
-                    .then(load)
-                }
+          <div className="space-y-4">
+            <SimpleTable
+              headers={["Course", "Type", "Actions"]}
+              rows={(data.eligibility || []).map((e) => [
+                `${e.course_code} ${e.course_title}`,
+                e.eligibility_type || "secondary",
+                <button
+                  key={e.course_id}
+                  className="text-black"
+                  onClick={() =>
+                    api
+                      .delete(
+                        `/users/professors/${id}/eligibility/${e.course_id}`,
+                      )
+                      .then(load)
+                  }
+                >
+                  Remove
+                </button>,
+              ])}
+            />
+
+            <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
+              <select
+                className="border rounded-lg p-2"
+                value={eligibilityCourseId}
+                onChange={(e) => setEligibilityCourseId(e.target.value)}
               >
-                Remove
-              </button>,
-            ])}
-            footer={
+                <option value="">Select eligible course</option>
+                {(data.availableCourses || []).map((course) => (
+                  <option key={course.course_id} value={course.course_id}>
+                    {course.course_code} - {course.course_title}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="border rounded-lg p-2"
+                value={eligibilityType}
+                onChange={(e) => setEligibilityType(e.target.value)}
+              >
+                <option value="primary">Primary</option>
+                <option value="secondary">Secondary</option>
+              </select>
               <button
-                className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+                className="bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
                 onClick={async () => {
-                  const courseId = prompt("Course ID from catalog") || "";
-                  const eligibilityType =
-                    prompt("Type: primary or secondary") || "secondary";
-                  if (!courseId) return;
+                  if (!eligibilityCourseId) return;
                   await api.post(`/users/professors/${id}/eligibility`, {
-                    courseId,
+                    courseId: Number(eligibilityCourseId),
                     eligibilityType,
                   });
+                  setEligibilityCourseId("");
+                  setEligibilityType("secondary");
                   await load();
                 }}
               >
-                Add eligible course
+                Add
               </button>
-            }
-          />
+            </div>
+          </div>
         )}
 
         {tab === "Students in Classes" && (
@@ -248,7 +504,7 @@ export default function FacultyDetailsPage() {
           <SimpleTable
             headers={["Course", "Open grading", "Actions"]}
             rows={(data.gradingControl || []).map((g) => [
-              `${g.course_code} ${g.course_title}`,
+              `${g.course_code} ${g.course_title || g.course_name || ""}`.trim(),
               g.is_enabled ? "Open" : "Closed",
               <div key={g.section_id} className="flex gap-2">
                 <button
@@ -298,7 +554,7 @@ export default function FacultyDetailsPage() {
         {tab === "Schedule" && (
           <SimpleTable
             headers={["Course", "Semester", "Year", "Room", "Schedule"]}
-            rows={(data.schedule || []).map((s) => [
+            rows={scheduleRows.map((s) => [
               s.course_code,
               s.semester,
               s.year,

@@ -1,7 +1,11 @@
 "use client";
 
 import {
-  createContext, useContext, useState, useEffect, ReactNode,
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
 import Cookies from "js-cookie";
@@ -44,8 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } else {
             setToken(savedToken);
             // Try cache first
-            const cached = typeof window !== "undefined"
-              ? localStorage.getItem("user") : null;
+            const cached =
+              typeof window !== "undefined"
+                ? localStorage.getItem("user")
+                : null;
             if (cached) {
               setUser(JSON.parse(cached));
             } else {
@@ -78,7 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (credentials: LoginCredentials) => {
     // FIX 3: api.post returns response.data which is { success, data: { user, token } }
-    const res: any = await authApi.login(credentials.email, credentials.password);
+    const res: any = await authApi.login(
+      credentials.email,
+      credentials.password,
+    );
 
     if (!res.success) {
       throw new Error(res.message || "Login failed");
@@ -92,6 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setToken(authToken);
     setUser(loggedInUser);
+    if (loggedInUser.mustChangePassword) {
+      router.push("/force-change-password");
+      return;
+    }
     router.push(dashboardRoute(loggedInUser.role));
   };
 
@@ -133,11 +146,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{
-      user, token, isLoading,
-      isAuthenticated: !!user,
-      login, register, logout, refreshUser,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isLoading,
+        isAuthenticated: !!user,
+        login,
+        register,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

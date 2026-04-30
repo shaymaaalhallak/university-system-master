@@ -9,6 +9,7 @@ export interface User {
   role: UserRole;
   avatar?: string;
   phone?: string;
+  mustChangePassword?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

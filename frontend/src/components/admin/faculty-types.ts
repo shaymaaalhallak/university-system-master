@@ -13,6 +13,11 @@ export type FacultyRow = {
 
 export type FacultyMeta = {
   departments: Array<{ department_id: number; department_name: string }>;
+  programs: Array<{
+    program_id: number;
+    program_name: string;
+    department_id: number | null;
+  }>;
   titles: Array<{ title: string }>;
   stats: { totalProfessors: number };
 };
@@ -24,6 +29,7 @@ export type FacultyFormValues = {
   password: string;
   phone: string;
   departmentId: string;
+  degreeProgramId: string;
   title: string;
   hireDate: string;
 };

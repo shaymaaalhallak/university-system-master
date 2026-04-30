@@ -47,12 +47,31 @@ export async function runMigrations() {
       );
       console.log("  Added users.block_reason");
     }
+    if (!(await columnExists("users", "must_change_password"))) {
+      await query(
+        "ALTER TABLE `users` ADD COLUMN `must_change_password` tinyint(1) NOT NULL DEFAULT 0 AFTER `password`",
+      );
+      console.log("  Added users.must_change_password");
+    }
 
     if (!(await columnExists("professors", "cv_url"))) {
       await query(
         "ALTER TABLE `professors` ADD COLUMN `cv_url` text DEFAULT NULL",
       );
       console.log("  Added professors.cv_url");
+    }
+    if (!(await columnExists("professors", "degree_program_id"))) {
+      await query(
+        "ALTER TABLE `professors` ADD COLUMN `degree_program_id` int(11) DEFAULT NULL AFTER `department_id`",
+      );
+      console.log("  Added professors.degree_program_id");
+    }
+
+    if (!(await columnExists("course_sections", "section_name"))) {
+      await query(
+        "ALTER TABLE `course_sections` ADD COLUMN `section_name` varchar(20) DEFAULT NULL AFTER `course_id`",
+      );
+      console.log("  Added course_sections.section_name");
     }
 
     if (!(await tableExists("enrollments"))) {
@@ -296,6 +315,33 @@ export async function runMigrations() {
       `);
       console.log("  ✓ Created study_plans table");
     }
+    if (!(await columnExists("study_plans", "department_id"))) {
+      await query(
+        "ALTER TABLE `study_plans` ADD COLUMN `department_id` int(11) DEFAULT NULL AFTER `name`",
+      );
+      console.log("  Added study_plans.department_id");
+    }
+
+    if (!(await columnExists("study_plans", "program_id"))) {
+      await query(
+        "ALTER TABLE `study_plans` ADD COLUMN `program_id` int(11) DEFAULT NULL AFTER `department_id`",
+      );
+      console.log("  Added study_plans.program_id");
+    }
+
+    if (!(await indexExists("study_plans", "idx_sp_department"))) {
+      await query(
+        "ALTER TABLE `study_plans` ADD KEY `idx_sp_department` (`department_id`)",
+      );
+      console.log("  Added study_plans.idx_sp_department");
+    }
+
+    if (!(await indexExists("study_plans", "idx_sp_program"))) {
+      await query(
+        "ALTER TABLE `study_plans` ADD KEY `idx_sp_program` (`program_id`)",
+      );
+      console.log("  Added study_plans.idx_sp_program");
+    }
 
     // ── study_plan_courses table ─────────────────────────────────────────────
     if (!(await tableExists("study_plan_courses"))) {
@@ -316,6 +362,12 @@ export async function runMigrations() {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
       console.log("  ✓ Created study_plan_courses table");
+    }
+    if (!(await columnExists("study_plan_courses", "course_bucket"))) {
+      await query(
+        "ALTER TABLE `study_plan_courses` ADD COLUMN `course_bucket` varchar(30) NOT NULL DEFAULT 'major' AFTER `is_required`",
+      );
+      console.log("  Added study_plan_courses.course_bucket");
     }
     console.log("Migrations complete");
   } catch (err: any) {

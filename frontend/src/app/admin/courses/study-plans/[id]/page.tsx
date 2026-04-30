@@ -28,7 +28,7 @@ export default function StudyPlanDetailsPage() {
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};
     for (const item of plan?.items || []) {
-      const key = `Year ${item.year_no} - Semester ${item.semester_no}`;
+      const key = `Semester ${item.semester_no} (Year ${item.year_no})`;
       map[key] = map[key] || [];
       map[key].push(item);
     }
@@ -74,10 +74,11 @@ export default function StudyPlanDetailsPage() {
               >
                 <div>
                   <p className="font-medium">
-                    {i.course_code} - {i.course_title}
+                    {i.course_code} - {i.course_title} - {i.credits} credits
                   </p>
                   <p className="text-xs text-gray-500">
-                    {i.is_required ? "Required" : "Optional"}
+                    {i.is_required ? "Required" : "Optional"} •{" "}
+                    {(i.course_bucket || "major").toUpperCase()}{" "}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -100,7 +101,12 @@ export default function StudyPlanDetailsPage() {
                         ).toLowerCase() !== "no";
                       await api.put(
                         `/courses/study-plans/${id}/courses/${i.course_id}`,
-                        { yearNo, semesterNo, isRequired },
+                        {
+                          yearNo,
+                          semesterNo,
+                          isRequired,
+                          courseBucket: i.course_bucket || "major",
+                        },
                       );
                       await load();
                     }}

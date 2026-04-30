@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
   BookOpen,
@@ -17,7 +18,7 @@ import {
   UserSquare2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function DashboardLayout({
   children,
@@ -26,6 +27,7 @@ export default function DashboardLayout({
 }) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const studentLinks = [
@@ -48,6 +50,11 @@ export default function DashboardLayout({
   const adminLinks = [
     { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/admin/courses", label: "Courses", icon: BookOpen },
+    {
+      href: "/admin/grading-control",
+      label: "Grade Booking",
+      icon: GraduationCap,
+    },
     { href: "/admin/fees", label: "Fee Management", icon: DollarSign },
   ];
 
@@ -57,6 +64,11 @@ export default function DashboardLayout({
       : user?.role === "professor"
         ? professorLinks
         : studentLinks;
+  useEffect(() => {
+    if (user?.mustChangePassword && pathname !== "/force-change-password") {
+      router.push("/force-change-password");
+    }
+  }, [user?.mustChangePassword, pathname, router]);
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#fffaf3_0%,#f6eee2_100%)] text-[#26151a]">
@@ -85,16 +97,24 @@ export default function DashboardLayout({
                 className="h-12 w-12 rounded-full border border-white/20 bg-white/80 p-1"
               />
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#f0c98c]">WIU Portal</p>
-                <p className="text-sm text-[#f2e5d3]">Wadi International University</p>
+                <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#f0c98c]">
+                  WIU Portal
+                </p>
+                <p className="text-sm text-[#f2e5d3]">
+                  Wadi International University
+                </p>
               </div>
             </Link>
           </div>
 
           <div className="px-6 pt-6">
             <div className="rounded-[1.5rem] border border-white/10 bg-white/8 p-4 backdrop-blur">
-              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f0c98c]">Signed in as</p>
-              <p className="mt-2 text-lg font-bold">{user?.firstName} {user?.lastName}</p>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f0c98c]">
+                Signed in as
+              </p>
+              <p className="mt-2 text-lg font-bold">
+                {user?.firstName} {user?.lastName}
+              </p>
               <p className="text-sm capitalize text-[#eadbc4]">{user?.role}</p>
             </div>
           </div>
@@ -137,8 +157,12 @@ export default function DashboardLayout({
         <header className="border-b border-[#e3d3bc] bg-[#fff7eb]/85 backdrop-blur">
           <div className="flex items-center justify-between px-6 py-5 lg:px-10">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#8a5a44]">Academic Workspace</p>
-              <h1 className="mt-1 text-xl font-black text-[#4e1020]">Wadi International University</h1>
+              <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#8a5a44]">
+                Academic Workspace
+              </p>
+              <h1 className="mt-1 text-xl font-black text-[#4e1020]">
+                Wadi International University
+              </h1>
             </div>
             <div className="hidden items-center gap-3 rounded-full border border-[#e1cfb4] bg-white px-4 py-2 text-sm text-[#6b5848] md:flex">
               <Image

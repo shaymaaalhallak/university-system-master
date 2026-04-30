@@ -9,6 +9,7 @@ type Props = {
   onSubmit: () => void;
   submitLabel: string;
   includePassword?: boolean;
+  autoGenerateCredentials?: boolean;
   loading?: boolean;
 };
 
@@ -19,6 +20,7 @@ export default function FacultyForm({
   onSubmit,
   submitLabel,
   includePassword = true,
+  autoGenerateCredentials = false,
   loading = false,
 }: Props) {
   const update = (key: keyof FacultyFormValues, v: string) =>
@@ -39,14 +41,16 @@ export default function FacultyForm({
           value={value.lastName}
           onChange={(e) => update("lastName", e.target.value)}
         />
-        <input
-          className="border border-[#DED7CB] bg-white rounded-lg p-2"
-          placeholder="Email"
-          type="email"
-          value={value.email}
-          onChange={(e) => update("email", e.target.value)}
-        />
-        {includePassword ? (
+        {!autoGenerateCredentials && (
+          <input
+            className="border border-[#DED7CB] bg-white rounded-lg p-2"
+            placeholder="Email"
+            type="email"
+            value={value.email}
+            onChange={(e) => update("email", e.target.value)}
+          />
+        )}
+        {includePassword && !autoGenerateCredentials ? (
           <input
             className="border border-[#DED7CB] bg-white rounded-lg p-2"
             placeholder="Password"
@@ -62,7 +66,7 @@ export default function FacultyForm({
             onChange={(e) => update("phone", e.target.value)}
           />
         )}
-        {includePassword && (
+        {includePassword && !autoGenerateCredentials && (
           <input
             className="border border-[#DED7CB] bg-white rounded-lg p-2"
             placeholder="Phone"
@@ -83,7 +87,24 @@ export default function FacultyForm({
             </option>
           ))}
         </select>
-
+        <select
+          className="border border-[#DED7CB] bg-white rounded-lg p-2"
+          value={value.degreeProgramId}
+          onChange={(e) => update("degreeProgramId", e.target.value)}
+        >
+          <option value="">Degree Program *</option>
+          {meta?.programs
+            .filter(
+              (program) =>
+                !value.departmentId ||
+                String(program.department_id) === value.departmentId,
+            )
+            .map((program) => (
+              <option key={program.program_id} value={program.program_id}>
+                {program.program_name}
+              </option>
+            ))}
+        </select>
         <input
           className="border border-[#DED7CB] bg-white rounded-lg p-2"
           placeholder="Title"
@@ -98,7 +119,12 @@ export default function FacultyForm({
           onChange={(e) => update("hireDate", e.target.value)}
         />
       </div>
-
+      {autoGenerateCredentials && (
+        <p className="text-sm text-gray-600">
+          Email and password are generated automatically after creating the
+          professor account.
+        </p>
+      )}
       <button
         onClick={onSubmit}
         disabled={loading}

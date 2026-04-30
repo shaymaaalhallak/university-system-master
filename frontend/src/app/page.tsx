@@ -57,16 +57,34 @@ export default function HomePage() {
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#8a5a44]">
                 Wadi International University
               </p>
-              <p className="text-lg font-black tracking-wide text-[#5b1020]">WIU Portal</p>
+              <p className="text-lg font-black tracking-wide text-[#5b1020]">
+                WIU Portal
+              </p>
             </div>
           </Link>
 
           <nav className="hidden items-center gap-7 text-sm font-medium text-[#5f4a3d] md:flex">
-            <Link href="/about" className="transition hover:text-[#7a1126]">About</Link>
-            <Link href="/academics" className="transition hover:text-[#7a1126]">Academics</Link>
-            <Link href="/courses-catalog" className="transition hover:text-[#7a1126]">Courses</Link>
-            <Link href="/admissions" className="transition hover:text-[#7a1126]">Admissions</Link>
-            <Link href="/contact" className="transition hover:text-[#7a1126]">Contact</Link>
+            <Link href="/about" className="transition hover:text-[#7a1126]">
+              About
+            </Link>
+            <Link href="/academics" className="transition hover:text-[#7a1126]">
+              Academics
+            </Link>
+            <Link
+              href="/courses-catalog"
+              className="transition hover:text-[#7a1126]"
+            >
+              Courses
+            </Link>
+            <Link
+              href="/admissions"
+              className="transition hover:text-[#7a1126]"
+            >
+              Admissions
+            </Link>
+            <Link href="/contact" className="transition hover:text-[#7a1126]">
+              Contact
+            </Link>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -75,12 +93,6 @@ export default function HomePage() {
               className="rounded-full border border-[#b88b52] px-4 py-2 text-sm font-semibold text-[#6c1730] transition hover:bg-[#fff8ee]"
             >
               Login
-            </Link>
-            <Link
-              href="/register"
-              className="rounded-full bg-[#7a1126] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(122,17,38,0.2)] transition hover:bg-[#5f0d1e]"
-            >
-              Apply Now
             </Link>
           </div>
         </div>
@@ -97,13 +109,15 @@ export default function HomePage() {
               </div>
 
               <h1 className="max-w-3xl text-4xl font-black leading-tight text-[#4e1020] sm:text-5xl lg:text-6xl">
-                A university portal that looks and feels like <span className="text-[#b57639]">WIU</span>.
+                A university portal that looks and feels like{" "}
+                <span className="text-[#b57639]">WIU</span>.
               </h1>
 
               <p className="mt-6 max-w-2xl text-lg leading-8 text-[#5f4a3d]">
-                From course registration to assignments, attendance, grades, and faculty CVs,
-                the platform now carries the identity of Wadi International University with a
-                richer interface inspired by the campus itself.
+                From course registration to assignments, attendance, grades, and
+                faculty CVs, the platform now carries the identity of Wadi
+                International University with a richer interface inspired by the
+                campus itself.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-4">
@@ -128,8 +142,12 @@ export default function HomePage() {
                     key={stat.label}
                     className="rounded-2xl border border-[#d7c2a1] bg-white/75 p-5 shadow-[0_18px_45px_rgba(77,31,18,0.08)] backdrop-blur"
                   >
-                    <div className="text-3xl font-black text-[#7a1126]">{stat.value}</div>
-                    <div className="mt-1 text-sm text-[#6f5c4a]">{stat.label}</div>
+                    <div className="text-3xl font-black text-[#7a1126]">
+                      {stat.value}
+                    </div>
+                    <div className="mt-1 text-sm text-[#6f5c4a]">
+                      {stat.label}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -153,8 +171,12 @@ export default function HomePage() {
 
                   <div className="absolute left-6 right-6 top-6 flex items-start justify-between">
                     <div className="rounded-2xl border border-white/30 bg-[#fff4de]/85 px-4 py-3 shadow-lg backdrop-blur">
-                      <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#8a5a44]">Campus View</p>
-                      <p className="mt-1 text-lg font-bold text-[#4e1020]">Wadi International University</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#8a5a44]">
+                        Campus View
+                      </p>
+                      <p className="mt-1 text-lg font-bold text-[#4e1020]">
+                        Wadi International University
+                      </p>
                     </div>
                     <Image
                       src="/branding/wiu-logo.webp"
@@ -168,7 +190,10 @@ export default function HomePage() {
                   <div className="absolute bottom-6 left-6 right-6 grid gap-3 sm:grid-cols-3">
                     {[
                       { icon: Globe2, label: "International outlook" },
-                      { icon: ShieldCheck, label: "Structured academic records" },
+                      {
+                        icon: ShieldCheck,
+                        label: "Structured academic records",
+                      },
                       { icon: GraduationCap, label: "Student-centered access" },
                     ].map((item) => (
                       <div
@@ -188,9 +213,12 @@ export default function HomePage() {
 
         <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
           <div className="mb-12 max-w-3xl">
-            <p className="mb-3 text-sm font-bold uppercase tracking-[0.3em] text-[#8a5a44]">Why this design direction</p>
+            <p className="mb-3 text-sm font-bold uppercase tracking-[0.3em] text-[#8a5a44]">
+              Why this design direction
+            </p>
             <h2 className="text-3xl font-black text-[#4e1020] sm:text-4xl">
-              A more distinctive interface for the university, not a generic portal template.
+              A more distinctive interface for the university, not a generic
+              portal template.
             </h2>
           </div>
 
@@ -203,7 +231,9 @@ export default function HomePage() {
                 <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7a1126] to-[#b57639] text-white">
                   <pillar.icon size={24} />
                 </div>
-                <h3 className="text-xl font-bold text-[#4e1020]">{pillar.title}</h3>
+                <h3 className="text-xl font-bold text-[#4e1020]">
+                  {pillar.title}
+                </h3>
                 <p className="mt-3 leading-7 text-[#6b5848]">{pillar.text}</p>
               </div>
             ))}
@@ -213,23 +243,47 @@ export default function HomePage() {
         <section className="bg-[#4e1020] py-20 text-white">
           <div className="mx-auto grid max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8">
             <div>
-              <p className="mb-3 text-sm font-bold uppercase tracking-[0.3em] text-[#f0c98c]">Portal highlights</p>
+              <p className="mb-3 text-sm font-bold uppercase tracking-[0.3em] text-[#f0c98c]">
+                Portal highlights
+              </p>
               <h2 className="text-3xl font-black sm:text-4xl">
-                Built around the daily rhythm of students, professors, and administration.
+                Built around the daily rhythm of students, professors, and
+                administration.
               </h2>
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
               {[
-                { icon: Calendar, title: "Attendance tracking", text: "Section-based daily attendance with reporting." },
-                { icon: BookOpen, title: "Assignment workflow", text: "Publish files, set deadlines, and track submissions." },
-                { icon: Library, title: "Grade structures", text: "Flexible components with total control over weighting." },
-                { icon: Users, title: "Professor profiles", text: "Dedicated CV and teaching profile space for faculty." },
+                {
+                  icon: Calendar,
+                  title: "Attendance tracking",
+                  text: "Section-based daily attendance with reporting.",
+                },
+                {
+                  icon: BookOpen,
+                  title: "Assignment workflow",
+                  text: "Publish files, set deadlines, and track submissions.",
+                },
+                {
+                  icon: Library,
+                  title: "Grade structures",
+                  text: "Flexible components with total control over weighting.",
+                },
+                {
+                  icon: Users,
+                  title: "Professor profiles",
+                  text: "Dedicated CV and teaching profile space for faculty.",
+                },
               ].map((item) => (
-                <div key={item.title} className="rounded-[1.5rem] border border-white/10 bg-white/8 p-6 backdrop-blur">
+                <div
+                  key={item.title}
+                  className="rounded-[1.5rem] border border-white/10 bg-white/8 p-6 backdrop-blur"
+                >
                   <item.icon className="mb-4 text-[#f3c783]" size={22} />
                   <h3 className="font-bold">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-[#eadbc4]">{item.text}</p>
+                  <p className="mt-2 text-sm leading-6 text-[#eadbc4]">
+                    {item.text}
+                  </p>
                 </div>
               ))}
             </div>
@@ -239,8 +293,12 @@ export default function HomePage() {
         <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
           <div className="grid gap-8 rounded-[2rem] border border-[#dec9a7] bg-gradient-to-r from-[#fff7eb] via-white to-[#f5e6d1] p-8 shadow-[0_24px_70px_rgba(88,51,30,0.08)] lg:grid-cols-[1fr_auto] lg:items-center">
             <div>
-              <p className="mb-3 text-sm font-bold uppercase tracking-[0.3em] text-[#8a5a44]">Contact WIU</p>
-              <h2 className="text-3xl font-black text-[#4e1020]">Ready to step into the WIU portal?</h2>
+              <p className="mb-3 text-sm font-bold uppercase tracking-[0.3em] text-[#8a5a44]">
+                Contact WIU
+              </p>
+              <h2 className="text-3xl font-black text-[#4e1020]">
+                Ready to step into the WIU portal?
+              </h2>
               <div className="mt-6 grid gap-4 text-[#6b5848] sm:grid-cols-3">
                 <div className="flex items-center gap-3">
                   <Phone size={18} className="text-[#7a1126]" />

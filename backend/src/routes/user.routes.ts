@@ -49,6 +49,20 @@ const tableExists = async (tableName: string): Promise<boolean> => {
   );
   return Boolean(row && row.cnt > 0);
 };
+const columnExists = async (
+  tableName: string,
+  columnName: string,
+): Promise<boolean> => {
+  const row = await queryFirst<{ cnt: number }>(
+    `SELECT COUNT(*) AS cnt
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [tableName, columnName],
+  );
+  return Boolean(row && row.cnt > 0);
+};
 
 const getStudentByUserId = async (
   userId: number,
@@ -72,6 +86,23 @@ const normalizeToken = (value: string): string =>
     .trim()
     .replace(/[^a-z0-9]+/g, "")
     .slice(0, 30);
+
+const randomFrom = (chars: string): string =>
+  chars[Math.floor(Math.random() * chars.length)];
+
+const generateProfessorPassword = (
+  firstName: string,
+  lastName: string,
+): string => {
+  const base =
+    normalizeToken(`${firstName}${lastName}`).slice(0, 16) || "professor";
+
+  const upper = randomFrom("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+  const digit = randomFrom("0123456789");
+  const symbol = randomFrom("@#$%&*");
+  const special = randomFrom("!?_-+=");
+  return `${base}${upper}${digit}${symbol}${special}`;
+};
 
 // ============================ STUDENTS ============================
 
@@ -256,12 +287,10 @@ router.post(
       const password = incomingPassword || generatedPassword;
 
       if (!firstName || !lastName) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "First name and last name are required",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "First name and last name are required",
+        });
       }
 
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -271,12 +300,10 @@ router.post(
       }
 
       if (password.length < 6) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Password must be at least 6 characters",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 6 characters",
+        });
       }
 
       if (!incomingEmail) {
@@ -591,12 +618,10 @@ router.post(
     try {
       const hasNotificationsTable = await tableExists("notifications");
       if (!hasNotificationsTable) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Notifications table is not available",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Notifications table is not available",
+        });
       }
 
       const { title, message } = req.body;
@@ -629,12 +654,10 @@ router.post(
     try {
       const { status, adminNote } = req.body;
       if (!status || !["approved", "rejected"].includes(status)) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "status must be approved or rejected",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "status must be approved or rejected",
+        });
       }
 
       await query(
@@ -722,21 +745,27 @@ router.get(
     try {
       const { search, departmentId, title } = req.query;
       const hasDepartmentsTable = await tableExists("departments");
+      const hasProgramsTable = await tableExists("programs");
       const departmentSelect = hasDepartmentsTable
         ? "d.department_name"
         : "NULL AS department_name";
       const departmentJoin = hasDepartmentsTable
         ? "LEFT JOIN departments d ON p.department_id = d.department_id"
         : "";
-
+      const programSelect = hasProgramsTable
+        ? ", pgr.program_name AS degree_program_name"
+        : ", NULL AS degree_program_name";
+      const programJoin = hasProgramsTable
+        ? "LEFT JOIN programs pgr ON p.degree_program_id = pgr.program_id"
+        : "";
       let sql = `
       SELECT u.user_id, u.first_name, u.last_name, u.email, u.phone, u.status, u.created_at,
-             p.professor_id, p.department_id, p.title, p.hire_date, p.cv_url,
-           
+             p.professor_id, p.department_id, p.degree_program_id, p.title, p.hire_date, p.cv_url,
              ${departmentSelect}
+             ${programSelect}
       FROM users u
       JOIN professors p ON u.user_id = p.user_id
-     
+      ${programJoin}
       ${departmentJoin}
       WHERE u.role = 'professor'
     `;
@@ -779,10 +808,16 @@ router.get(
   async (_req: Request, res: Response) => {
     try {
       const hasDepartmentsTable = await tableExists("departments");
-      const [departments, titles, stats] = await Promise.all([
+      const hasProgramsTable = await tableExists("programs");
+      const [departments, programs, titles, stats] = await Promise.all([
         hasDepartmentsTable
           ? safeList(
               "SELECT department_id, department_name FROM departments ORDER BY department_name",
+            )
+          : Promise.resolve([]),
+        hasProgramsTable
+          ? safeList(
+              "SELECT program_id, program_name, department_id FROM programs ORDER BY program_name",
             )
           : Promise.resolve([]),
         safeList(
@@ -803,6 +838,7 @@ router.get(
         success: true,
         data: {
           departments,
+          programs,
           titles,
           stats: { totalProfessors: stats?.[0]?.totalProfessors || 0 },
         },
@@ -823,66 +859,66 @@ router.post(
       const {
         firstName,
         lastName,
-        email,
-        password,
         phone,
         departmentId,
+        degreeProgramId,
         title,
         hireDate,
       } = req.body;
 
-      if (!firstName || !lastName || !email) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "First name, last name and email are required",
-          });
+      if (!firstName || !lastName || !degreeProgramId) {
+        return res.status(400).json({
+          success: false,
+          message: "First name, last name and degree program are required",
+        });
       }
 
-      const existing = await safeList(
-        "SELECT user_id FROM users WHERE email = ?",
-        [String(email).toLowerCase()],
+      const selectedProgram = await safeList(
+        "SELECT program_id FROM programs WHERE program_id = ? LIMIT 1",
+        [degreeProgramId],
       );
-      if (existing.length) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Email already in use" });
+      if (!selectedProgram.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected degree program does not exist",
+        });
       }
 
-      const rawPassword = String(
-        password ||
-          `${normalizeToken(`${firstName}${lastName}`)}${new Date().getFullYear()}`,
+      const emailBase =
+        `${normalizeToken(firstName)}.${normalizeToken(lastName)}`.replace(
+          /\.+/g,
+          ".",
+        );
+      let generatedEmail = `${emailBase}@pr.university.edu`;
+      let suffix = 1;
+      while (true) {
+        const existing = await safeList(
+          "SELECT user_id FROM users WHERE email = ?",
+          [generatedEmail],
+        );
+        if (!existing.length) break;
+        generatedEmail = `${emailBase}${suffix}@pr.university.edu`;
+        suffix += 1;
+      }
+      const rawPassword = generateProfessorPassword(
+        String(firstName),
+        String(lastName),
       );
-      if (rawPassword.length < 6) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Password must be at least 6 characters",
-          });
-      }
-
       const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
       const userInsert: any = await query(
-        "INSERT INTO users (first_name, last_name, email, password, phone, role, status) VALUES (?, ?, ?, ?, ?, 'professor', 'active')",
-        [
-          firstName,
-          lastName,
-          String(email).toLowerCase(),
-          hashedPassword,
-          phone || null,
-        ],
+        "INSERT INTO users (first_name, last_name, email, password, must_change_password, phone, role, status) VALUES (?, ?, ?, ?, 1, ?, 'professor', 'active')",
+        [firstName, lastName, generatedEmail, hashedPassword, phone || null],
       );
 
       const userId = userInsert.insertId;
 
       const profileInsert: any = await query(
-        "INSERT INTO professors (user_id, department_id, title, hire_date) VALUES (?, ?, ?, ?)",
+        "INSERT INTO professors (user_id, department_id, degree_program_id, title, hire_date) VALUES (?, ?, ?, ?, ?)",
         [
           userId,
           departmentId || null,
+          degreeProgramId,
           title || "Professor",
           hireDate || new Date(),
         ],
@@ -894,7 +930,8 @@ router.post(
         data: {
           userId,
           professorId: profileInsert.insertId,
-          generatedPassword: password ? null : rawPassword,
+          generatedEmail,
+          generatedPassword: rawPassword,
         },
       });
     } catch (error) {
@@ -912,20 +949,44 @@ router.get(
     try {
       const { id } = req.params;
       const hasDepartmentsTable = await tableExists("departments");
-
+      const hasProgramsTable = await tableExists("programs");
+      const hasSectionNameColumn = await columnExists(
+        "course_sections",
+        "section_name",
+      );
+      const hasScheduleTimeColumn = await columnExists(
+        "course_sections",
+        "schedule_time",
+      );
+      const hasRoomNumberColumn = await columnExists(
+        "course_sections",
+        "room_number",
+      );
+      const hasScheduleColumn = await columnExists(
+        "course_sections",
+        "schedule",
+      );
+      const hasRoomColumn = await columnExists("course_sections", "room");
       const departmentSelect = hasDepartmentsTable
         ? "d.department_name"
         : "NULL AS department_name";
       const departmentJoin = hasDepartmentsTable
         ? "LEFT JOIN departments d ON p.department_id = d.department_id"
         : "";
-
+      const degreeSelect = hasProgramsTable
+        ? ", pr.program_name AS degree_program_name"
+        : ", NULL AS degree_program_name";
+      const degreeJoin = hasProgramsTable
+        ? "LEFT JOIN programs pr ON p.degree_program_id = pr.program_id"
+        : "";
       const profile = await queryFirst(
         `SELECT u.user_id, u.first_name, u.last_name, u.email, u.phone, u.status,
-              p.professor_id, p.department_id, p.title, p.hire_date,
+                           p.professor_id, p.department_id, p.degree_program_id, p.title, p.hire_date,
               ${departmentSelect}
+              ${degreeSelect}
        FROM users u
        JOIN professors p ON u.user_id = p.user_id
+       ${degreeJoin}
        ${departmentJoin}
        WHERE u.user_id = ? AND u.role = 'professor'`,
         [id],
@@ -955,8 +1016,13 @@ router.get(
         activityLogs,
       ] = await Promise.all([
         safeList(
-          `SELECT cs.section_id, cs.course_id, cs.semester, cs.year, cs.room, cs.schedule,
-                c.course_code, c.course_title
+          `SELECT cs.section_id, cs.course_id,
+          ${hasSectionNameColumn ? "COALESCE(cs.section_name, CONCAT('S', cs.section_id))" : "CONCAT('S', cs.section_id)"} AS section_name,
+      cs.semester, cs.year,
+      ${hasRoomNumberColumn ? "cs.room_number" : hasRoomColumn ? "cs.room" : "NULL"} AS room,
+      ${hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL"} AS schedule,
+      ${hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL"} AS schedule_time,
+      c.course_code, c.course_title
          FROM course_sections cs
          JOIN courses c ON cs.course_id = c.course_id
          WHERE cs.professor_id = ?
@@ -974,9 +1040,23 @@ router.get(
               [professorId],
             )
           : Promise.resolve([]),
-        safeList(
-          "SELECT course_id, course_code, course_title FROM courses ORDER BY course_code",
-        ),
+        hasEligibilityTable
+          ? safeList(
+              `SELECT c.course_id, c.course_code, c.course_title
+       FROM courses c
+       LEFT JOIN professor_course_eligibility pce
+         ON pce.course_id = c.course_id AND pce.professor_id = ?
+       WHERE c.department_id = ?
+         AND (pce.course_id IS NOT NULL OR NOT EXISTS (
+           SELECT 1 FROM professor_course_eligibility pce2 WHERE pce2.professor_id = ?
+         ))
+       ORDER BY c.course_code`,
+              [professorId, (profile as any).department_id || 0, professorId],
+            )
+          : safeList(
+              "SELECT course_id, course_code, course_title FROM courses WHERE department_id = ? ORDER BY course_code",
+              [(profile as any).department_id || 0],
+            ),
         safeList(
           `SELECT e.enrollment_id, e.status, u.user_id AS student_user_id, u.first_name, u.last_name, u.email,
                 c.course_code, c.course_title
@@ -990,12 +1070,14 @@ router.get(
           [professorId],
         ),
         safeList(
-          `SELECT cs.section_id, c.course_code, c.course_title,
-                COALESCE(gec.is_enabled, 0) AS is_enabled, gec.updated_at
-         FROM course_sections cs
-         JOIN courses c ON cs.course_id = c.course_id
-         LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id
-         WHERE cs.professor_id = ?`,
+          `SELECT cs.section_id,
+       ${hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL"} AS schedule,
+       ${hasRoomNumberColumn ? "cs.room_number" : hasRoomColumn ? "cs.room" : "NULL"} AS room,
+       cs.semester, cs.year, c.course_code
+FROM course_sections cs
+JOIN courses c ON cs.course_id = c.course_id
+WHERE cs.professor_id = ?
+ORDER BY cs.year DESC, cs.semester`,
           [professorId],
         ),
         Promise.all([
@@ -1090,18 +1172,31 @@ router.put(
         email,
         phone,
         departmentId,
+        degreeProgramId,
         title,
         hireDate,
       } = req.body;
 
       await query(
         "UPDATE users SET first_name = ?, last_name = ?, email = ?, phone = ? WHERE user_id = ? AND role = 'professor'",
-        [firstName, lastName, email, phone || null, id],
+        [
+          firstName,
+          lastName,
+          String(email || "").toLowerCase(),
+          phone || null,
+          id,
+        ],
       );
 
       await query(
-        "UPDATE professors SET department_id = ?, title = ?, hire_date = ? WHERE user_id = ?",
-        [departmentId || null, title || null, hireDate || null, id],
+        "UPDATE professors SET department_id = ?, degree_program_id = ?, title = ?, hire_date = ? WHERE user_id = ?",
+        [
+          departmentId || null,
+          degreeProgramId || null,
+          title || null,
+          hireDate || null,
+          id,
+        ],
       );
 
       return res.json({ success: true, message: "Professor updated" });
@@ -1125,37 +1220,133 @@ router.post(
           .json({ success: false, message: "Professor profile not found" });
       }
 
-      const { courseId, semester, year, room, schedule } = req.body;
-      if (!courseId || !semester || !year) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "courseId, semester and year are required",
-          });
+      const { courseId, sectionName, semester, year, room, schedule } =
+        req.body;
+      if (!courseId || !sectionName || !semester || !year) {
+        return res.status(400).json({
+          success: false,
+          message: "courseId, sectionName, semester and year are required",
+        });
+      }
+      const profile = await queryFirst<{ department_id: number | null }>(
+        "SELECT department_id FROM professors WHERE professor_id = ?",
+        [professor.professor_id],
+      );
+      const sameProgramCourse = await safeList(
+        "SELECT course_id FROM courses WHERE course_id = ? AND department_id = ? LIMIT 1",
+        [courseId, profile?.department_id || 0],
+      );
+      if (!sameProgramCourse.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Course must belong to professor department",
+        });
       }
 
-      const insert: any = await query(
-        "INSERT INTO course_sections (course_id, professor_id, semester, year, room, schedule) VALUES (?, ?, ?, ?, ?, ?)",
-        [
-          courseId,
-          professor.professor_id,
-          semester,
-          year,
-          room || null,
-          schedule || null,
-        ],
+      const hasEligibilityTable = await tableExists(
+        "professor_course_eligibility",
       );
+      if (hasEligibilityTable) {
+        const anyEligible = await safeList(
+          "SELECT course_id FROM professor_course_eligibility WHERE professor_id = ? LIMIT 1",
+          [professor.professor_id],
+        );
+        if (anyEligible.length > 0) {
+          const isEligible = await safeList(
+            "SELECT course_id FROM professor_course_eligibility WHERE professor_id = ? AND course_id = ? LIMIT 1",
+            [professor.professor_id, courseId],
+          );
+          if (!isEligible.length) {
+            return res.status(400).json({
+              success: false,
+              message: "Course is not eligible for this professor",
+            });
+          }
+        }
+      }
+
+      const hasSectionNameColumn = await columnExists(
+        "course_sections",
+        "section_name",
+      );
+      const hasRoomNumberColumn = await columnExists(
+        "course_sections",
+        "room_number",
+      );
+      const hasRoomColumn = await columnExists("course_sections", "room");
+      const hasScheduleTimeColumn = await columnExists(
+        "course_sections",
+        "schedule_time",
+      );
+      const hasScheduleColumn = await columnExists(
+        "course_sections",
+        "schedule",
+      );
+      const columns = ["course_id"];
+      const values: any[] = [courseId];
+      if (hasSectionNameColumn) {
+        columns.push("section_name");
+        values.push(sectionName);
+      }
+      columns.push("professor_id", "semester", "year");
+      values.push(professor.professor_id, semester, year);
+
+      if (hasRoomNumberColumn) {
+        columns.push("room_number");
+        values.push(room || null);
+      } else if (hasRoomColumn) {
+        columns.push("room");
+        values.push(room || null);
+      }
+
+      if (hasScheduleTimeColumn) {
+        columns.push("schedule_time");
+        values.push(schedule || null);
+      } else if (hasScheduleColumn) {
+        columns.push("schedule");
+        values.push(schedule || null);
+      }
+
+      const insertSql = `INSERT INTO course_sections (${columns.join(", ")}) VALUES (${columns
+        .map(() => "?")
+        .join(", ")})`;
+      const insert: any = await query(insertSql, values);
 
       return res
         .status(201)
         .json({ success: true, data: { sectionId: insert.insertId } });
+    } catch (error: any) {
+      console.error("Failed to add professor section:", error);
+      return res.status(500).json({
+        success: false,
+        message: error?.sqlMessage || "Server error",
+      });
+    }
+  },
+);
+router.delete(
+  "/professors/:id/sections/:sectionId",
+  verifyToken,
+  requireRole("admin"),
+  async (req: Request, res: Response) => {
+    try {
+      const professor = await getProfessorByUserId(Number(req.params.id));
+      if (!professor) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Professor profile not found" });
+      }
+
+      await query(
+        "DELETE FROM course_sections WHERE section_id = ? AND professor_id = ?",
+        [req.params.sectionId, professor.professor_id],
+      );
+      return res.json({ success: true, message: "Section removed" });
     } catch (error) {
       return res.status(500).json({ success: false, message: "Server error" });
     }
   },
 );
-
 // POST /api/users/professors/:id/eligibility
 router.post(
   "/professors/:id/eligibility",
@@ -1167,12 +1358,10 @@ router.post(
         "professor_course_eligibility",
       );
       if (!hasEligibilityTable) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "professor_course_eligibility table is not available",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "professor_course_eligibility table is not available",
+        });
       }
 
       const professor = await getProfessorByUserId(Number(req.params.id));
@@ -1238,22 +1427,18 @@ router.post(
     try {
       const hasNotificationsTable = await tableExists("notifications");
       if (!hasNotificationsTable) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Notifications table is not available",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Notifications table is not available",
+        });
       }
 
       const { subject, message } = req.body;
       if (!subject || !message) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "subject and message are required",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "subject and message are required",
+        });
       }
 
       await query(
@@ -1374,19 +1559,17 @@ router.post(
       const { newPassword } = req.body;
 
       if (!newPassword || newPassword.length < 6) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Password must be at least 6 characters",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 6 characters",
+        });
       }
 
       const hashed = await bcrypt.hash(newPassword, 10);
-      await query("UPDATE users SET password = ? WHERE user_id = ?", [
-        hashed,
-        req.params.id,
-      ]);
+      await query(
+        "UPDATE users SET password = ?, must_change_password = 1 WHERE user_id = ?",
+        [hashed, req.params.id],
+      );
 
       return res.json({
         success: true,
