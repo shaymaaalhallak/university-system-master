@@ -11,14 +11,21 @@ export default function StudyPlanDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const [plan, setPlan] = useState<any>(null);
   const [courses, setCourses] = useState<any[]>([]);
-
+  const [error, setError] = useState("");
   const load = async () => {
-    const [planRes, coursesRes] = await Promise.all([
-      api.get<ApiResponse<any>>(`/courses/study-plans/${id}`),
-      api.get<ApiResponse<any[]>>(`/courses`),
-    ]);
-    if (planRes.success) setPlan(planRes.data);
-    if (coursesRes.success) setCourses(coursesRes.data);
+    try {
+      setError("");
+      const [planRes, coursesRes] = await Promise.all([
+        api.get<ApiResponse<any>>(`/courses/study-plans/${id}`),
+        api.get<ApiResponse<any[]>>(`/courses`),
+      ]);
+      if (planRes.success) setPlan(planRes.data);
+      if (coursesRes.success) setCourses(coursesRes.data);
+    } catch (e: any) {
+      setError(
+        e?.response?.data?.message || "Failed to load study plan details.",
+      );
+    }
   };
 
   useEffect(() => {
@@ -35,7 +42,14 @@ export default function StudyPlanDetailsPage() {
     return map;
   }, [plan?.items]);
 
-  if (!plan) return <div className="p-6">Loading study plan...</div>;
+  if (!plan) {
+    return (
+      <div className="p-6">
+        <p>Loading study plan...</p>
+        {error && <p className="mt-2 text-red-700">{error}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 bg-[#FCFBF8] p-3 rounded-xl">
@@ -50,7 +64,11 @@ export default function StudyPlanDetailsPage() {
           ← Back to plans
         </Link>
       </div>
-
+      {error && (
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+          {error}
+        </div>
+      )}
       {Object.entries(grouped).map(([group, items]) => (
         <div
           key={group}

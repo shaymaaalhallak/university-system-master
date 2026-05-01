@@ -237,48 +237,46 @@ router.get(
 
 // GET /api/courses/study-plans — list study plans
 router.get(
-  "/study-plans/meta",
-  verifyToken,
-  requireRole("admin"),
-  async (_req: Request, res: Response) => {
-    try {
-      const hasDepartments = await tableExists("departments");
-      const hasPrograms = await tableExists("programs");
-      const [departments, programs] = await Promise.all([
-        hasDepartments
-          ? query(
-              "SELECT department_id, department_name FROM departments ORDER BY department_name",
-            )
-          : Promise.resolve([]),
-        hasPrograms
-          ? query(
-              "SELECT program_id, program_name, department_id FROM programs ORDER BY program_name",
-            )
-          : Promise.resolve([]),
-      ]);
-      return res.json({ success: true, data: { departments, programs } });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: "Server error" });
-    }
-  },
-);
-// GET /api/courses/study-plans — list study plans
-router.get(
   "/study-plans",
   verifyToken,
   requireRole("admin"),
   async (_req: Request, res: Response) => {
     try {
+      const [
+        hasDepartmentColumn,
+        hasProgramColumn,
+        hasPlanNameColumn,
+        hasCreatedAtColumn,
+      ] = await Promise.all([
+        columnExists("study_plans", "department_id"),
+        columnExists("study_plans", "program_id"),
+        columnExists("study_plans", "plan_name"),
+        columnExists("study_plans", "created_at"),
+      ]);
+      const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
+      const departmentExpr = hasDepartmentColumn ? "sp.department_id" : "NULL";
+      const programExpr = hasProgramColumn ? "sp.program_id" : "NULL";
+      const createdAtExpr = hasCreatedAtColumn ? "sp.created_at" : "NULL";
+      const departmentNameExpr = hasDepartmentColumn
+        ? "d.department_name"
+        : "NULL";
+      const programNameExpr = hasProgramColumn ? "p.program_name" : "NULL";
+      const deptJoin = hasDepartmentColumn
+        ? "LEFT JOIN departments d ON sp.department_id = d.department_id"
+        : "";
+      const progJoin = hasProgramColumn
+        ? "LEFT JOIN programs p ON sp.program_id = p.program_id"
+        : "";
       const rows = await query(
-        `SELECT sp.plan_id, sp.plan_name, sp.department_id, sp.program_id, sp.created_at,
-              d.department_name, p.program_name,
+        `SELECT sp.plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${createdAtExpr} AS created_at,
+              ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name,
               COUNT(spc.id) AS courses_count
        FROM study_plans sp
-       LEFT JOIN departments d ON sp.department_id = d.department_id
-       LEFT JOIN programs p ON sp.program_id = p.program_id
+        ${deptJoin}
+       ${progJoin}
        LEFT JOIN study_plan_courses spc ON sp.plan_id = spc.plan_id
-       GROUP BY sp.plan_id, sp.plan_name, sp.department_id, sp.program_id, sp.created_at, d.department_name, p.program_name
-       ORDER BY sp.plan_name`,
+      GROUP BY sp.plan_id, ${planNameExpr}, ${departmentExpr}, ${programExpr}, ${createdAtExpr}, ${departmentNameExpr}, ${programNameExpr}
+      ORDER BY sp.plan_name`,
       );
       return res.json({ success: true, data: rows });
     } catch (error) {
@@ -303,7 +301,7 @@ router.post(
         await query(`
           CREATE TABLE \`study_plans\` (
             \`plan_id\` int(11) NOT NULL AUTO_INCREMENT,
-            \`plan_name\` varchar(150) NOT NULL,
+            \`name\` varchar(150) NOT NULL,
             \`department_id\` int(11) DEFAULT NULL,
             \`program_id\` int(11) DEFAULT NULL,
             \`created_at\` timestamp DEFAULT current_timestamp(),
@@ -327,24 +325,13 @@ router.post(
       ]);
       const hasPlanNameColumn = await columnExists("study_plans", "plan_name");
       const planNameColumn = hasPlanNameColumn ? "plan_name" : "name";
-      const parsedDepartmentId =
-        departmentId === undefined ||
-        departmentId === null ||
-        departmentId === ""
-          ? null
-          : Number(departmentId);
-      const parsedProgramId =
-        programId === undefined || programId === null || programId === ""
-          ? null
-          : Number(programId);
-      let safeDepartmentId =
-        Number.isFinite(parsedDepartmentId) && parsedDepartmentId! > 0
-          ? parsedDepartmentId
-          : null;
-      let safeProgramId =
-        Number.isFinite(parsedProgramId) && parsedProgramId! > 0
-          ? parsedProgramId
-          : null;
+      const normalizeId = (value: any): string | null => {
+        if (value === undefined || value === null) return null;
+        const text = String(value).trim();
+        return text.length ? text : null;
+      };
+      let safeDepartmentId: string | null = normalizeId(departmentId);
+      let safeProgramId: string | null = normalizeId(programId);
 
       if (safeDepartmentId !== null) {
         const departmentRows = await query(
@@ -459,11 +446,30 @@ router.get(
   requireRole("admin"),
   async (req: Request, res: Response) => {
     try {
+      const [hasDepartmentColumn, hasProgramColumn, hasPlanNameColumn] =
+        await Promise.all([
+          columnExists("study_plans", "department_id"),
+          columnExists("study_plans", "program_id"),
+          columnExists("study_plans", "plan_name"),
+        ]);
+      const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
+      const departmentExpr = hasDepartmentColumn ? "sp.department_id" : "NULL";
+      const programExpr = hasProgramColumn ? "sp.program_id" : "NULL";
+      const departmentNameExpr = hasDepartmentColumn
+        ? "d.department_name"
+        : "NULL";
+      const programNameExpr = hasProgramColumn ? "p.program_name" : "NULL";
+      const deptJoin = hasDepartmentColumn
+        ? "LEFT JOIN departments d ON sp.department_id = d.department_id"
+        : "";
+      const progJoin = hasProgramColumn
+        ? "LEFT JOIN programs p ON sp.program_id = p.program_id"
+        : "";
       const planRows = await query(
-        `SELECT sp.plan_id, sp.plan_name, sp.department_id, sp.program_id, d.department_name, p.program_name
+        `SELECT sp.plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name
        FROM study_plans sp
-       LEFT JOIN departments d ON sp.department_id = d.department_id
-       LEFT JOIN programs p ON sp.program_id = p.program_id
+        ${deptJoin}
+       ${progJoin}
        WHERE sp.plan_id = ?`,
         [req.params.id],
       );
@@ -495,6 +501,8 @@ router.get(
   requireRole("student"),
   async (req: Request, res: Response) => {
     try {
+      const hasPlanNameColumn = await columnExists("study_plans", "plan_name");
+      const planNameExpr = hasPlanNameColumn ? "plan_name" : "name";
       const studentRows = await query(
         `SELECT s.student_id, s.department_id, s.program_id, s.enrollment_year,
                 p.program_name, d.department_name
@@ -512,7 +520,7 @@ router.get(
 
       const student = studentRows[0];
       const plans = await query(
-        `SELECT plan_id, plan_name, department_id, program_id
+        `SELECT plan_id, ${planNameExpr} AS plan_name, department_id, program_id
          FROM study_plans
          WHERE (program_id = ?)
             OR (program_id IS NULL AND (department_id = ? OR department_id IS NULL))
@@ -580,108 +588,7 @@ router.get(
           enrollmentYear: student.enrollment_year,
           programName: student.program_name,
           departmentName: student.department_name,
-          planNames: plans.map((p: any) => p.plan_name),
-          semesters,
-        },
-      });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: "Server error" });
-    }
-  },
-);
-// GET /api/courses/study-plans/my-program — student-visible plans for same specialization/program
-router.get(
-  "/study-plans/my-program",
-  verifyToken,
-  requireRole("student"),
-  async (req: Request, res: Response) => {
-    try {
-      const studentRows = await query(
-        `SELECT s.student_id, s.department_id, s.program_id, s.enrollment_year,
-                p.program_name, d.department_name
-         FROM students s
-         LEFT JOIN programs p ON s.program_id = p.program_id
-         LEFT JOIN departments d ON s.department_id = d.department_id
-         WHERE s.user_id = ? LIMIT 1`,
-        [req.user!.id],
-      );
-      if (!studentRows.length) {
-        return res
-          .status(404)
-          .json({ success: false, message: "Student profile not found" });
-      }
-
-      const student = studentRows[0];
-      const plans = await query(
-        `SELECT plan_id, plan_name, department_id, program_id
-         FROM study_plans
-         WHERE (program_id = ?)
-            OR (program_id IS NULL AND (department_id = ? OR department_id IS NULL))
-         ORDER BY CASE WHEN program_id = ? THEN 0 ELSE 1 END, plan_id`,
-        [
-          student.program_id || 0,
-          student.department_id || 0,
-          student.program_id || 0,
-        ],
-      );
-
-      if (!plans.length) {
-        return res.json({
-          success: true,
-          data: {
-            enrollmentYear: student.enrollment_year,
-            programName: student.program_name,
-            departmentName: student.department_name,
-            semesters: [],
-          },
-        });
-      }
-
-      const planIds = plans.map((p: any) => Number(p.plan_id));
-      const items = await query(
-        `SELECT spc.plan_id, spc.course_id, spc.year_no, spc.semester_no, spc.is_required, spc.course_bucket,
-                c.course_code, c.course_title, c.credits
-         FROM study_plan_courses spc
-         JOIN courses c ON c.course_id = spc.course_id
-         WHERE spc.plan_id IN (${planIds.map(() => "?").join(",")})
-         ORDER BY spc.year_no, spc.semester_no, c.course_code`,
-        planIds,
-      );
-
-      const grouped = new Map<string, any[]>();
-      items.forEach((item: any) => {
-        const key = `${item.year_no}-${item.semester_no}`;
-        const list = grouped.get(key) || [];
-        list.push(item);
-        grouped.set(key, list);
-      });
-
-      const semesters = Array.from(grouped.entries()).map(([key, list]) => {
-        const [yearNo, semesterNo] = key.split("-").map(Number);
-        return {
-          yearNo,
-          semesterNo,
-          calendarYear:
-            Number(student.enrollment_year || new Date().getFullYear()) +
-            yearNo -
-            1,
-          courses: list.map((item: any) => ({
-            courseId: item.course_id,
-            code: item.course_code,
-            name: item.course_title,
-            credits: Number(item.credits || 0),
-            bucket: item.course_bucket || "major",
-          })),
-        };
-      });
-
-      return res.json({
-        success: true,
-        data: {
-          enrollmentYear: student.enrollment_year,
-          programName: student.program_name,
-          departmentName: student.department_name,
-          planNames: plans.map((p: any) => p.plan_name),
+          planNames: plans.map((p: any) => p.name),
           semesters,
         },
       });
@@ -698,8 +605,10 @@ router.put(
   async (req: Request, res: Response) => {
     try {
       const { planName, departmentId, programId } = req.body;
+      const hasPlanNameColumn = await columnExists("study_plans", "plan_name");
+      const planNameColumn = hasPlanNameColumn ? "plan_name" : "name";
       await query(
-        "UPDATE study_plans SET plan_name = ?, department_id = ?, program_id = ? WHERE plan_id = ?",
+        `UPDATE study_plans SET ${planNameColumn} = ?, department_id = ?, program_id = ? WHERE plan_id = ?`,
         [planName, departmentId || null, programId || null, req.params.id],
       );
       return res.json({ success: true, message: "Study plan updated" });
@@ -754,7 +663,7 @@ router.put(
     try {
       const { yearNo, semesterNo, isRequired, courseBucket } = req.body;
       await query(
-        "UPDATE study_plan_courses SET year_no = ?, semester_no = ?, is_required = ?,course_bucket = ? WHERE plan_id = ? AND course_id = ?",
+        "UPDATE study_plan_courses SET year_no = ?, semester_no = ?, is_required = ?, course_bucket = ? WHERE plan_id = ? AND course_id = ?",
         [
           yearNo,
           semesterNo,
@@ -799,12 +708,14 @@ router.get(
   requireRole("admin"),
   async (req: Request, res: Response) => {
     try {
+      const hasPlanNameColumn = await columnExists("study_plans", "plan_name");
+      const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
       const rows = await query(
-        `SELECT sp.plan_id, sp.plan_name, spc.year_no, spc.semester_no, spc.is_required
+        `SELECT sp.plan_id, ${planNameExpr} AS plan_name, spc.year_no, spc.semester_no, spc.is_required
        FROM study_plan_courses spc
        JOIN study_plans sp ON spc.plan_id = sp.plan_id
        WHERE spc.course_id = ?
-       ORDER BY sp.plan_name, spc.year_no, spc.semester_no`,
+       ORDER BY  ${planNameExpr}, spc.year_no, spc.semester_no`,
         [req.params.id],
       );
       return res.json({ success: true, data: rows });

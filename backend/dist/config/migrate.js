@@ -28,9 +28,21 @@ async function runMigrations() {
             await query("ALTER TABLE `users` ADD COLUMN `block_reason` varchar(500) DEFAULT NULL AFTER `status`");
             console.log("  Added users.block_reason");
         }
+        if (!(await columnExists("users", "must_change_password"))) {
+            await query("ALTER TABLE `users` ADD COLUMN `must_change_password` tinyint(1) NOT NULL DEFAULT 0 AFTER `password`");
+            console.log("  Added users.must_change_password");
+        }
         if (!(await columnExists("professors", "cv_url"))) {
             await query("ALTER TABLE `professors` ADD COLUMN `cv_url` text DEFAULT NULL");
             console.log("  Added professors.cv_url");
+        }
+        if (!(await columnExists("professors", "degree_program_id"))) {
+            await query("ALTER TABLE `professors` ADD COLUMN `degree_program_id` int(11) DEFAULT NULL AFTER `department_id`");
+            console.log("  Added professors.degree_program_id");
+        }
+        if (!(await columnExists("course_sections", "section_name"))) {
+            await query("ALTER TABLE `course_sections` ADD COLUMN `section_name` varchar(20) DEFAULT NULL AFTER `course_id`");
+            console.log("  Added course_sections.section_name");
         }
         if (!(await tableExists("enrollments"))) {
             await query(`
@@ -207,6 +219,80 @@ async function runMigrations() {
       `);
             await query("ALTER TABLE `grades` ADD UNIQUE KEY `unique_student_section_grade` (`student_id`, `section_id`)");
             console.log("  Added grades unique_student_section_grade");
+        }
+        // ── professor_course_eligibility table ──────────────────────────────────
+        if (!(await tableExists("professor_course_eligibility"))) {
+            await query(`
+        CREATE TABLE \`professor_course_eligibility\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`professor_id\` int(11) NOT NULL,
+          \`course_id\` int(11) NOT NULL,
+          \`eligibility_type\` enum('primary','secondary') DEFAULT 'secondary',
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`uniq_prof_course\` (\`professor_id\`, \`course_id\`),
+          KEY \`idx_pce_course\` (\`course_id\`),
+          CONSTRAINT \`pce_prof_fk\` FOREIGN KEY (\`professor_id\`) REFERENCES \`professors\` (\`professor_id\`) ON DELETE CASCADE,
+          CONSTRAINT \`pce_course_fk\` FOREIGN KEY (\`course_id\`) REFERENCES \`courses\` (\`course_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  Created professor_course_eligibility table");
+        }
+        // ── study_plans table ────────────────────────────────────────────────────
+        if (!(await tableExists("study_plans"))) {
+            await query(`
+        CREATE TABLE \`study_plans\` (
+          \`plan_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`plan_name\` varchar(150) NOT NULL,
+          \`department_id\` int(11) DEFAULT NULL,
+          \`program_id\` int(11) DEFAULT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`plan_id\`),
+          KEY \`idx_sp_department\` (\`department_id\`),
+          KEY \`idx_sp_program\` (\`program_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  ✓ Created study_plans table");
+        }
+        if (!(await columnExists("study_plans", "department_id"))) {
+            await query("ALTER TABLE `study_plans` ADD COLUMN `department_id` int(11) DEFAULT NULL AFTER `name`");
+            console.log("  Added study_plans.department_id");
+        }
+        if (!(await columnExists("study_plans", "program_id"))) {
+            await query("ALTER TABLE `study_plans` ADD COLUMN `program_id` int(11) DEFAULT NULL AFTER `department_id`");
+            console.log("  Added study_plans.program_id");
+        }
+        if (!(await indexExists("study_plans", "idx_sp_department"))) {
+            await query("ALTER TABLE `study_plans` ADD KEY `idx_sp_department` (`department_id`)");
+            console.log("  Added study_plans.idx_sp_department");
+        }
+        if (!(await indexExists("study_plans", "idx_sp_program"))) {
+            await query("ALTER TABLE `study_plans` ADD KEY `idx_sp_program` (`program_id`)");
+            console.log("  Added study_plans.idx_sp_program");
+        }
+        // ── study_plan_courses table ─────────────────────────────────────────────
+        if (!(await tableExists("study_plan_courses"))) {
+            await query(`
+        CREATE TABLE \`study_plan_courses\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`plan_id\` int(11) NOT NULL,
+          \`course_id\` int(11) NOT NULL,
+          \`year_no\` int(11) NOT NULL,
+          \`semester_no\` int(11) NOT NULL,
+          \`is_required\` tinyint(1) DEFAULT 1,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`uniq_plan_course\` (\`plan_id\`, \`course_id\`),
+          KEY \`idx_spc_course\` (\`course_id\`),
+          CONSTRAINT \`spc_plan_fk\` FOREIGN KEY (\`plan_id\`) REFERENCES \`study_plans\` (\`plan_id\`) ON DELETE CASCADE,
+          CONSTRAINT \`spc_course_fk\` FOREIGN KEY (\`course_id\`) REFERENCES \`courses\` (\`course_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+            console.log("  ✓ Created study_plan_courses table");
+        }
+        if (!(await columnExists("study_plan_courses", "course_bucket"))) {
+            await query("ALTER TABLE `study_plan_courses` ADD COLUMN `course_bucket` varchar(30) NOT NULL DEFAULT 'major' AFTER `is_required`");
+            console.log("  Added study_plan_courses.course_bucket");
         }
         console.log("Migrations complete");
     }

@@ -17,9 +17,17 @@ export default function CreateStudyPlanPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.get<ApiResponse<any>>("/users/students/meta").then((res) => {
-      if (res.success) setMeta(res.data);
-    });
+    api
+      .get<ApiResponse<any>>("/users/students/meta")
+      .then((res) => {
+        if (res.success) setMeta(res.data);
+      })
+      .catch((err: any) => {
+        setError(
+          err?.response?.data?.message ||
+            "Unable to load departments/programs metadata.",
+        );
+      });
   }, []);
 
   const programs = useMemo(() => {
@@ -72,6 +80,7 @@ export default function CreateStudyPlanPage() {
         />
         <select
           className="border border-[#DED7CB] bg-white rounded-lg p-2 w-full"
+          value={departmentId}
           onChange={(e) => {
             setDepartmentId(e.target.value);
             setProgramId("");
@@ -85,7 +94,11 @@ export default function CreateStudyPlanPage() {
           ))}
         </select>
 
-        <select className="border border-[#DED7CB] bg-white rounded-lg p-2 w-full">
+        <select
+          className="border border-[#DED7CB] bg-white rounded-lg p-2 w-full"
+          value={programId}
+          onChange={(e) => setProgramId(e.target.value)}
+        >
           <option value="">Program / Specialization (optional)</option>
           {programs.map((p: any) => (
             <option key={p.program_id} value={p.program_id}>

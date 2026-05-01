@@ -98,7 +98,7 @@ router.post("/login", [
             return res.status(400).json({ success: false, errors: errors.array() });
         }
         const { email, password } = req.body;
-        const users = await query("SELECT user_id, first_name, last_name, email, password, role, status, IFNULL(block_reason, '') AS block_reason FROM users WHERE email = ?", [email]);
+        const users = await query("SELECT user_id, first_name, last_name, email, password, role, status, must_change_password, IFNULL(block_reason, '') AS block_reason FROM users WHERE email = ?", [email]);
         if (users.length === 0) {
             return res
                 .status(401)
@@ -134,6 +134,7 @@ router.post("/login", [
                     lastName: user.last_name,
                     email: user.email,
                     role: user.role,
+                    mustChangePassword: !!user.must_change_password,
                 },
                 token,
             },
@@ -160,7 +161,7 @@ router.post("/logout", auth_1.verifyToken, async (req, res) => {
 // ------------------- GET CURRENT USER -------------------
 router.get("/me", auth_1.verifyToken, async (req, res) => {
     try {
-        const users = await query("SELECT user_id, first_name, last_name, email, role, phone, status, created_at FROM users WHERE user_id = ?", [req.user.id]);
+        const users = await query("SELECT user_id, first_name, last_name, email, role, phone, status, created_at, must_change_password FROM users WHERE user_id = ?", [req.user.id]);
         if (users.length === 0) {
             return res
                 .status(404)
@@ -178,11 +179,44 @@ router.get("/me", auth_1.verifyToken, async (req, res) => {
                 phone: user.phone,
                 status: user.status,
                 createdAt: user.created_at,
+                mustChangePassword: !!user.must_change_password,
             },
         });
     }
     catch (error) {
         console.error("Get me error:", error);
+        return sendDatabaseAwareError(res, error, "Server error");
+    }
+});
+router.post("/change-password", auth_1.verifyToken, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        if (!currentPassword || !newPassword || String(newPassword).length < 8) {
+            return res.status(400).json({
+                success: false,
+                message: "Current password and a new password (8+ chars) are required",
+            });
+        }
+        const users = await query("SELECT user_id, password FROM users WHERE user_id = ? LIMIT 1", [req.user.id]);
+        if (!users.length) {
+            return res
+                .status(404)
+                .json({ success: false, message: "User not found" });
+        }
+        const valid = await bcryptjs_1.default.compare(String(currentPassword), users[0].password);
+        if (!valid) {
+            return res
+                .status(400)
+                .json({ success: false, message: "Current password is incorrect" });
+        }
+        const hashed = await bcryptjs_1.default.hash(String(newPassword), 10);
+        await query("UPDATE users SET password = ?, must_change_password = 0 WHERE user_id = ?", [hashed, req.user.id]);
+        return res.json({
+            success: true,
+            message: "Password changed successfully",
+        });
+    }
+    catch (error) {
         return sendDatabaseAwareError(res, error, "Server error");
     }
 });

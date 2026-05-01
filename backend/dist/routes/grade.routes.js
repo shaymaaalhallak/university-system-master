@@ -7,7 +7,7 @@ const express_1 = require("express");
 const db_1 = __importDefault(require("../config/db"));
 const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
-const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => (err ? reject(err) : resolve(results))));
+const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => err ? reject(err) : resolve(results)));
 const getStudentId = async (userId) => {
     const rows = await query("SELECT student_id FROM students WHERE user_id = ?", [userId]);
     return rows.length > 0 ? rows[0].student_id : null;
@@ -43,11 +43,19 @@ const scoreToLetter = (score) => {
 };
 const letterToPoints = (letter) => {
     const map = {
-        "A+": 4.0, "A": 4.0, "A-": 3.7,
-        "B+": 3.3, "B": 3.0, "B-": 2.7,
-        "C+": 2.3, "C": 2.0, "C-": 1.7,
-        "D+": 1.3, "D": 1.0, "D-": 0.7,
-        "F": 0.0,
+        "A+": 4.0,
+        A: 4.0,
+        "A-": 3.7,
+        "B+": 3.3,
+        B: 3.0,
+        "B-": 2.7,
+        "C+": 2.3,
+        C: 2.0,
+        "C-": 1.7,
+        "D+": 1.3,
+        D: 1.0,
+        "D-": 0.7,
+        F: 0.0,
     };
     return map[letter?.trim().toUpperCase()] ?? 0.0;
 };
@@ -98,9 +106,9 @@ const syncLegacyGradeControlFields = async (sectionId, userId, components) => {
     await query(`INSERT INTO grade_entry_control
        (section_id, is_enabled, assignment_label, midterm_label, final_label,
         assignment_weight, midterm_weight, final_weight, enabled_by)
-     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
-       is_enabled = 1,
+       is_enabled = is_enabled,
        assignment_label = VALUES(assignment_label),
        midterm_label = VALUES(midterm_label),
        final_label = VALUES(final_label),
@@ -125,8 +133,17 @@ const calculateAndUpdateGPA = async (studentId) => {
      JOIN courses c ON cs.course_id = c.course_id
      WHERE g.student_id = ? AND g.letter_grade IS NOT NULL AND g.letter_grade != ''`, [studentId]);
     if (gradeRows.length === 0) {
-        await query("UPDATE students SET gpa = ? WHERE student_id = ?", ["0.00", studentId]);
-        return { gpa: "0.00", totalCredits: 0, semesterGPA: {}, standing: "", canGraduate: false };
+        await query("UPDATE students SET gpa = ? WHERE student_id = ?", [
+            "0.00",
+            studentId,
+        ]);
+        return {
+            gpa: "0.00",
+            totalCredits: 0,
+            semesterGPA: {},
+            standing: "",
+            canGraduate: false,
+        };
     }
     let totalWeightedPoints = 0;
     let totalCredits = 0;
@@ -145,7 +162,8 @@ const calculateAndUpdateGPA = async (studentId) => {
     const cumulativeGPA = totalCredits > 0 ? (totalWeightedPoints / totalCredits).toFixed(2) : "0.00";
     const semesterGPA = {};
     for (const [key, val] of Object.entries(semesterMap)) {
-        semesterGPA[key] = val.credits > 0 ? (val.weighted / val.credits).toFixed(2) : "0.00";
+        semesterGPA[key] =
+            val.credits > 0 ? (val.weighted / val.credits).toFixed(2) : "0.00";
     }
     const gpaNum = Number(cumulativeGPA);
     let standing = "";
@@ -159,7 +177,10 @@ const calculateAndUpdateGPA = async (studentId) => {
         standing = "Pass";
     else
         standing = "Below graduation threshold";
-    await query("UPDATE students SET gpa = ? WHERE student_id = ?", [cumulativeGPA, studentId]);
+    await query("UPDATE students SET gpa = ? WHERE student_id = ?", [
+        cumulativeGPA,
+        studentId,
+    ]);
     return {
         gpa: cumulativeGPA,
         totalCredits,
@@ -205,8 +226,13 @@ router.get("/my", auth_1.verifyToken, (0, auth_1.requireRole)("student"), async 
     try {
         const studentId = await getStudentId(req.user.id);
         if (!studentId)
-            return res.status(404).json({ success: false, message: "Student profile not found" });
-        return res.json({ success: true, data: await buildStudentGradeRecords(studentId) });
+            return res
+                .status(404)
+                .json({ success: false, message: "Student profile not found" });
+        return res.json({
+            success: true,
+            data: await buildStudentGradeRecords(studentId),
+        });
     }
     catch (error) {
         console.error(error);
@@ -217,8 +243,13 @@ router.get("/my-gpa", auth_1.verifyToken, (0, auth_1.requireRole)("student"), as
     try {
         const studentId = await getStudentId(req.user.id);
         if (!studentId)
-            return res.status(404).json({ success: false, message: "Student profile not found" });
-        return res.json({ success: true, data: await calculateAndUpdateGPA(studentId) });
+            return res
+                .status(404)
+                .json({ success: false, message: "Student profile not found" });
+        return res.json({
+            success: true,
+            data: await calculateAndUpdateGPA(studentId),
+        });
     }
     catch (error) {
         return res.status(500).json({ success: false, message: "Server error" });
@@ -230,10 +261,15 @@ router.get("/:studentId/gpa", auth_1.verifyToken, async (req, res) => {
         if (req.user.role === "student") {
             const studentId = await getStudentId(req.user.id);
             if (studentId !== requestedId) {
-                return res.status(403).json({ success: false, message: "Access denied" });
+                return res
+                    .status(403)
+                    .json({ success: false, message: "Access denied" });
             }
         }
-        return res.json({ success: true, data: await calculateAndUpdateGPA(requestedId) });
+        return res.json({
+            success: true,
+            data: await calculateAndUpdateGPA(requestedId),
+        });
     }
     catch (error) {
         return res.status(500).json({ success: false, message: "Server error" });
@@ -245,7 +281,9 @@ router.get("/section/:sectionId/setup", auth_1.verifyToken, (0, auth_1.requireRo
         if (req.user.role === "professor") {
             const allowed = await ensureProfessorCanAccessSection(req.user.id, sectionId);
             if (!allowed) {
-                return res.status(403).json({ success: false, message: "You do not teach this section" });
+                return res
+                    .status(403)
+                    .json({ success: false, message: "You do not teach this section" });
             }
         }
         const sectionRows = await query(`SELECT cs.section_id, cs.course_id, cs.semester, cs.year, cs.room_number, cs.schedule_time,
@@ -254,7 +292,9 @@ router.get("/section/:sectionId/setup", auth_1.verifyToken, (0, auth_1.requireRo
        JOIN courses c ON cs.course_id = c.course_id
        WHERE cs.section_id = ?`, [sectionId]);
         if (sectionRows.length === 0) {
-            return res.status(404).json({ success: false, message: "Section not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Section not found" });
         }
         const components = await getSectionComponents(sectionId);
         const students = await query(`SELECT s.student_id, u.first_name, u.last_name, u.email,
@@ -292,7 +332,8 @@ router.get("/section/:sectionId/setup", auth_1.verifyToken, (0, auth_1.requireRo
             ...student,
             componentScores: Object.fromEntries(components.map((component) => [
                 String(component.component_id),
-                scoreMap.get(`${student.student_id}:${component.component_id}`) ?? 0,
+                scoreMap.get(`${student.student_id}:${component.component_id}`) ??
+                    0,
             ])),
         }));
         return res.json({
@@ -320,17 +361,23 @@ router.put("/section/:sectionId/setup", auth_1.verifyToken, (0, auth_1.requireRo
         if (req.user.role === "professor") {
             const allowed = await ensureProfessorCanAccessSection(req.user.id, sectionId);
             if (!allowed) {
-                return res.status(403).json({ success: false, message: "You do not teach this section" });
+                return res
+                    .status(403)
+                    .json({ success: false, message: "You do not teach this section" });
             }
         }
         const components = (req.body.components ?? []).map((component, index) => ({
             name: String(component.name || "").trim(),
             weight: Number(component.weight),
-            order: Number.isFinite(Number(component.order)) ? Number(component.order) : index + 1,
+            order: Number.isFinite(Number(component.order))
+                ? Number(component.order)
+                : index + 1,
         }));
         const validationError = validateComponents(components);
         if (validationError) {
-            return res.status(400).json({ success: false, message: validationError });
+            return res
+                .status(400)
+                .json({ success: false, message: validationError });
         }
         const existingGrades = await query("SELECT grade_id FROM grades WHERE section_id = ?", [sectionId]);
         if (existingGrades.length > 0) {
@@ -338,14 +385,19 @@ router.put("/section/:sectionId/setup", auth_1.verifyToken, (0, auth_1.requireRo
          JOIN grades g ON gcs.grade_id = g.grade_id
          WHERE g.section_id = ?`, [sectionId]);
         }
-        await query("DELETE FROM grade_components WHERE section_id = ?", [sectionId]);
+        await query("DELETE FROM grade_components WHERE section_id = ?", [
+            sectionId,
+        ]);
         for (const component of components) {
             await query(`INSERT INTO grade_components (section_id, component_name, weight, display_order)
          VALUES (?, ?, ?, ?)`, [sectionId, component.name, component.weight, component.order]);
         }
         const savedComponents = await getSectionComponents(sectionId);
         await syncLegacyGradeControlFields(sectionId, req.user.id, savedComponents);
-        return res.json({ success: true, message: "Grade structure saved successfully" });
+        return res.json({
+            success: true,
+            message: "Grade structure saved successfully",
+        });
     }
     catch (error) {
         console.error(error);
@@ -379,7 +431,9 @@ router.get("/", auth_1.verifyToken, (0, auth_1.requireRole)("admin", "professor"
         if (req.user.role === "professor") {
             const professorId = await getProfessorId(req.user.id);
             if (!professorId) {
-                return res.status(404).json({ success: false, message: "Professor profile not found" });
+                return res
+                    .status(404)
+                    .json({ success: false, message: "Professor profile not found" });
             }
             sql += " AND cs.professor_id = ?";
             params.push(professorId);
@@ -425,25 +479,47 @@ router.post("/", auth_1.verifyToken, (0, auth_1.requireRole)("professor", "admin
     try {
         const { studentId, sectionId, componentScores } = req.body;
         if (!studentId || !sectionId) {
-            return res.status(400).json({ success: false, message: "studentId and sectionId are required" });
+            return res.status(400).json({
+                success: false,
+                message: "studentId and sectionId are required",
+            });
         }
         if (req.user.role === "professor") {
             const allowed = await ensureProfessorCanAccessSection(req.user.id, sectionId);
             if (!allowed) {
-                return res.status(403).json({ success: false, message: "You do not teach this section" });
+                return res
+                    .status(403)
+                    .json({ success: false, message: "You do not teach this section" });
+            }
+            const entryControlRows = await query("SELECT COALESCE(is_enabled, 0) AS is_enabled FROM grade_entry_control WHERE section_id = ? LIMIT 1", [sectionId]);
+            const isEnabled = Number(entryControlRows[0]?.is_enabled ?? 0) === 1;
+            if (!isEnabled) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Grade entry is closed for this section. Ask an admin to open it.",
+                });
             }
         }
         const components = await getSectionComponents(sectionId);
         if (components.length === 0) {
-            return res.status(400).json({ success: false, message: "Define the grade structure for this section first" });
+            return res.status(400).json({
+                success: false,
+                message: "Define the grade structure for this section first",
+            });
         }
         const totalWeight = components.reduce((sum, component) => sum + Number(component.weight), 0);
         if (totalWeight !== 100) {
-            return res.status(400).json({ success: false, message: "This section's grade structure is invalid. Total weight must equal 100." });
+            return res.status(400).json({
+                success: false,
+                message: "This section's grade structure is invalid. Total weight must equal 100.",
+            });
         }
         const studentEnrollment = await query("SELECT enrollment_id FROM enrollments WHERE student_id = ? AND section_id = ? AND status = 'active'", [studentId, sectionId]);
         if (studentEnrollment.length === 0) {
-            return res.status(400).json({ success: false, message: "Student is not enrolled in this section" });
+            return res.status(400).json({
+                success: false,
+                message: "Student is not enrolled in this section",
+            });
         }
         const scoreMap = new Map();
         (Array.isArray(componentScores) ? componentScores : []).forEach((entry) => {
@@ -458,7 +534,9 @@ router.post("/", auth_1.verifyToken, (0, auth_1.requireRole)("professor", "admin
         }, 0);
         const totalScore = Math.round(weightedTotal);
         const letterGrade = scoreToLetter(totalScore);
-        const legacyScores = components.slice(0, 3).map((component) => scoreMap.get(component.component_id) ?? 0);
+        const legacyScores = components
+            .slice(0, 3)
+            .map((component) => scoreMap.get(component.component_id) ?? 0);
         while (legacyScores.length < 3)
             legacyScores.push(0);
         const existingGradeRows = await query(`SELECT grade_id
@@ -470,11 +548,26 @@ router.post("/", auth_1.verifyToken, (0, auth_1.requireRole)("professor", "admin
         if (gradeId) {
             await query(`UPDATE grades
          SET assignment_score = ?, midterm_score = ?, final_score = ?, total_score = ?, letter_grade = ?
-         WHERE grade_id = ?`, [legacyScores[0], legacyScores[1], legacyScores[2], totalScore, letterGrade, gradeId]);
+         WHERE grade_id = ?`, [
+                legacyScores[0],
+                legacyScores[1],
+                legacyScores[2],
+                totalScore,
+                letterGrade,
+                gradeId,
+            ]);
         }
         else {
             const gradeResult = await query(`INSERT INTO grades (student_id, section_id, assignment_score, midterm_score, final_score, total_score, letter_grade)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`, [studentId, sectionId, legacyScores[0], legacyScores[1], legacyScores[2], totalScore, letterGrade]);
+         VALUES (?, ?, ?, ?, ?, ?, ?)`, [
+                studentId,
+                sectionId,
+                legacyScores[0],
+                legacyScores[1],
+                legacyScores[2],
+                totalScore,
+                letterGrade,
+            ]);
             gradeId = Number(gradeResult.insertId || 0);
         }
         for (const component of components) {

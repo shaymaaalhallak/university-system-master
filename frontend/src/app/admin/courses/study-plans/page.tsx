@@ -8,10 +8,15 @@ type ApiResponse<T> = { success: boolean; data: T; message?: string };
 
 export default function StudyPlansListPage() {
   const [plans, setPlans] = useState<any[]>([]);
-
+  const [error, setError] = useState("");
   const load = async () => {
-    const res = await api.get<ApiResponse<any[]>>("/courses/study-plans");
-    if (res.success) setPlans(res.data);
+    try {
+      setError("");
+      const res = await api.get<ApiResponse<any[]>>("/courses/study-plans");
+      if (res.success) setPlans(res.data);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || "Failed to load study plans.");
+    }
   };
 
   useEffect(() => {
@@ -41,7 +46,11 @@ export default function StudyPlansListPage() {
           + Add Plan
         </Link>
       </div>
-
+      {error && (
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+          {error}
+        </div>
+      )}
       <div className="bg-[#FCFBF8] border border-[#E7E2D9] rounded-xl overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-[#F1EFEA]">

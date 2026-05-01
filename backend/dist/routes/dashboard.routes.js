@@ -7,13 +7,15 @@ const express_1 = require("express");
 const db_1 = __importDefault(require("../config/db"));
 const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
-const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => (err ? reject(err) : resolve(results))));
+const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => err ? reject(err) : resolve(results)));
 // GET /api/dashboard/student
 router.get("/student", auth_1.verifyToken, (0, auth_1.requireRole)("student"), async (req, res) => {
     try {
         const studentRows = await query("SELECT student_id, gpa, semester FROM students WHERE user_id = ?", [req.user.id]);
         if (studentRows.length === 0) {
-            return res.status(404).json({ success: false, message: "Student profile not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Student profile not found" });
         }
         const { student_id, gpa, semester } = studentRows[0];
         // Active enrollments with schedule — safe if enrollments table missing
@@ -30,7 +32,9 @@ router.get("/student", auth_1.verifyToken, (0, auth_1.requireRole)("student"), a
          WHERE e.student_id = ? AND e.status = 'active'
          ORDER BY c.course_code`, [student_id]);
         }
-        catch { /* enrollments table not yet created */ }
+        catch {
+            /* enrollments table not yet created */
+        }
         // Total credits this semester
         let creditRow = [{ total: 0 }];
         try {
@@ -71,9 +75,65 @@ router.get("/student", auth_1.verifyToken, (0, auth_1.requireRole)("student"), a
            AND (expires_at IS NULL OR expires_at >= CURDATE())
          ORDER BY created_at DESC LIMIT 5`);
         }
-        catch { /* table may not exist on first run */ }
+        catch {
+            /* table may not exist on first run */
+        }
         // Pending fees
         const feeRow = await query("SELECT COALESCE(SUM(amount), 0) AS pending FROM payments WHERE student_id = ? AND status = 'pending'", [student_id]);
+        let studyPlan = {
+            semesters: [],
+            enrollmentYear: null,
+            planNames: [],
+        };
+        try {
+            const planRes = await query(`SELECT s.enrollment_year, sp.plan_id, sp.plan_name
+         FROM students s
+         LEFT JOIN study_plans sp
+           ON (sp.program_id = s.program_id)
+           OR (sp.program_id IS NULL AND (sp.department_id = s.department_id OR sp.department_id IS NULL))
+         WHERE s.student_id = ?
+         ORDER BY CASE WHEN sp.program_id = s.program_id THEN 0 ELSE 1 END`, [student_id]);
+            if (planRes.length > 0) {
+                const enrollmentYear = Number(planRes[0].enrollment_year || new Date().getFullYear());
+                const planIds = planRes
+                    .map((row) => Number(row.plan_id))
+                    .filter((v) => Number.isFinite(v) && v > 0);
+                let items = [];
+                if (planIds.length > 0) {
+                    items = await query(`SELECT spc.year_no, spc.semester_no, spc.course_bucket, c.course_code, c.course_title, c.credits
+             FROM study_plan_courses spc
+             JOIN courses c ON c.course_id = spc.course_id
+             WHERE spc.plan_id IN (${planIds.map(() => "?").join(",")})
+             ORDER BY spc.year_no, spc.semester_no, c.course_code`, planIds);
+                }
+                const grouped = new Map();
+                items.forEach((item) => {
+                    const key = `${item.year_no}-${item.semester_no}`;
+                    const list = grouped.get(key) || [];
+                    list.push(item);
+                    grouped.set(key, list);
+                });
+                studyPlan = {
+                    enrollmentYear,
+                    planNames: planRes.map((row) => row.plan_name).filter(Boolean),
+                    semesters: Array.from(grouped.entries()).map(([key, rows]) => {
+                        const [yearNo, semesterNo] = key.split("-").map(Number);
+                        return {
+                            yearNo,
+                            semesterNo,
+                            calendarYear: enrollmentYear + yearNo - 1,
+                            courses: rows.map((row) => ({
+                                code: row.course_code,
+                                name: row.course_title,
+                                credits: Number(row.credits || 0),
+                                bucket: row.course_bucket || "major",
+                            })),
+                        };
+                    }),
+                };
+            }
+        }
+        catch { }
         return res.json({
             success: true,
             data: {
@@ -91,6 +151,7 @@ router.get("/student", auth_1.verifyToken, (0, auth_1.requireRole)("student"), a
                 })),
                 pendingAssignments,
                 recentAnnouncements: announcements,
+                studyPlan,
             },
         });
     }
@@ -104,7 +165,9 @@ router.get("/professor", auth_1.verifyToken, (0, auth_1.requireRole)("professor"
     try {
         const profRows = await query("SELECT professor_id FROM professors WHERE user_id = ?", [req.user.id]);
         if (profRows.length === 0) {
-            return res.status(404).json({ success: false, message: "Professor profile not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Professor profile not found" });
         }
         const profId = profRows[0].professor_id;
         // Sections teaching this year — enrolled count safe if enrollments missing
@@ -146,7 +209,9 @@ router.get("/professor", auth_1.verifyToken, (0, auth_1.requireRole)("professor"
            AND (expires_at IS NULL OR expires_at >= CURDATE())
          ORDER BY created_at DESC LIMIT 5`);
         }
-        catch { /* table may not exist on first run */ }
+        catch {
+            /* table may not exist on first run */
+        }
         return res.json({
             success: true,
             data: {

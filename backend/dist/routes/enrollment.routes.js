@@ -7,7 +7,19 @@ const express_1 = require("express");
 const db_1 = __importDefault(require("../config/db"));
 const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
-const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => (err ? reject(err) : resolve(results))));
+const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => err ? reject(err) : resolve(results)));
+const tableExists = async (tableName) => {
+    const rows = await query(`SELECT COUNT(*) AS cnt
+     FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [tableName]);
+    return Number(rows?.[0]?.cnt || 0) > 0;
+};
+const columnExists = async (tableName, columnName) => {
+    const rows = await query(`SELECT COUNT(*) AS cnt
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [tableName, columnName]);
+    return Number(rows?.[0]?.cnt || 0) > 0;
+};
 // Helper: get student_id from user_id
 const getStudentId = async (userId) => {
     const rows = await query("SELECT student_id FROM students WHERE user_id = ?", [userId]);
@@ -56,7 +68,9 @@ router.get("/my", auth_1.verifyToken, (0, auth_1.requireRole)("student"), async 
     try {
         const studentId = await getStudentId(req.user.id);
         if (!studentId)
-            return res.status(404).json({ success: false, message: "Student profile not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Student profile not found" });
         const rows = await query(`SELECT e.enrollment_id, e.section_id, e.status, e.enrolled_at,
               c.course_id, c.course_code, c.course_title, c.credits,
               cs.semester, cs.year, cs.room_number, cs.schedule_time,
@@ -82,21 +96,87 @@ router.post("/", auth_1.verifyToken, (0, auth_1.requireRole)("student"), async (
     try {
         const { sectionId } = req.body;
         if (!sectionId)
-            return res.status(400).json({ success: false, message: "sectionId is required" });
+            return res
+                .status(400)
+                .json({ success: false, message: "sectionId is required" });
         const studentId = await getStudentId(req.user.id);
         if (!studentId)
-            return res.status(404).json({ success: false, message: "Student profile not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Student profile not found" });
+        const studentPlanRows = await query("SELECT department_id, program_id, semester FROM students WHERE student_id = ? LIMIT 1", [studentId]);
+        if (!studentPlanRows.length) {
+            return res.status(404).json({
+                success: false,
+                message: "Student academic profile not found",
+            });
+        }
+        const studentPlan = studentPlanRows[0];
         // Get section details
         const sections = await query(`SELECT cs.section_id, cs.course_id, cs.semester, cs.year, c.credits
        FROM course_sections cs JOIN courses c ON cs.course_id = c.course_id
        WHERE cs.section_id = ?`, [sectionId]);
         if (sections.length === 0)
-            return res.status(404).json({ success: false, message: "Section not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Section not found" });
         const section = sections[0];
+        const [hasStudyPlans, hasStudyPlanCourses, hasProgramColumn, hasDepartmentColumn,] = await Promise.all([
+            tableExists("study_plans"),
+            tableExists("study_plan_courses"),
+            columnExists("study_plans", "program_id"),
+            columnExists("study_plans", "department_id"),
+        ]);
+        if (hasStudyPlans && hasStudyPlanCourses) {
+            const planScopeConditions = [];
+            const planScopeParams = [];
+            if (hasProgramColumn) {
+                planScopeConditions.push("sp.program_id = ?");
+                planScopeParams.push(Number(studentPlan.program_id || 0));
+            }
+            if (hasProgramColumn && hasDepartmentColumn) {
+                planScopeConditions.push("(sp.program_id IS NULL AND (sp.department_id = ? OR sp.department_id IS NULL))");
+                planScopeParams.push(Number(studentPlan.department_id || 0));
+            }
+            else if (!hasProgramColumn && hasDepartmentColumn) {
+                planScopeConditions.push("(sp.department_id = ? OR sp.department_id IS NULL)");
+                planScopeParams.push(Number(studentPlan.department_id || 0));
+            }
+            if (planScopeConditions.length > 0) {
+                const semesterAllowedRows = await query(`SELECT 1
+           FROM study_plan_courses spc
+           JOIN study_plans sp ON sp.plan_id = spc.plan_id
+           WHERE spc.semester_no = ?
+             AND (${planScopeConditions.join(" OR ")})
+           LIMIT 1`, [Number(studentPlan.semester || 1), ...planScopeParams]);
+                if (semesterAllowedRows.length > 0) {
+                    const allowedRows = await query(`SELECT 1
+             FROM study_plan_courses spc
+             JOIN study_plans sp ON sp.plan_id = spc.plan_id
+             WHERE spc.course_id = ?
+               AND spc.semester_no = ?
+               AND (${planScopeConditions.join(" OR ")})
+             LIMIT 1`, [
+                        section.course_id,
+                        Number(studentPlan.semester || 1),
+                        ...planScopeParams,
+                    ]);
+                    if (!allowedRows.length) {
+                        return res.status(400).json({
+                            success: false,
+                            message: "This course section is not available for your current study-plan semester.",
+                        });
+                    }
+                }
+            }
+        }
         // Check already enrolled
         const existing = await query("SELECT enrollment_id FROM enrollments WHERE student_id = ? AND section_id = ? AND status = 'active'", [studentId, sectionId]);
         if (existing.length > 0) {
-            return res.status(400).json({ success: false, message: "Already enrolled in this section" });
+            return res.status(400).json({
+                success: false,
+                message: "Already enrolled in this section",
+            });
         }
         // Check prerequisites
         const prereqs = await query("SELECT required_course_id FROM prerequisites WHERE course_id = ?", [section.course_id]);
@@ -146,14 +226,21 @@ router.delete("/:id", auth_1.verifyToken, (0, auth_1.requireRole)("student"), as
     try {
         const studentId = await getStudentId(req.user.id);
         if (!studentId)
-            return res.status(404).json({ success: false, message: "Student profile not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Student profile not found" });
         // Make sure the enrollment belongs to this student
         const enrollment = await query("SELECT enrollment_id FROM enrollments WHERE enrollment_id = ? AND student_id = ?", [req.params.id, studentId]);
         if (enrollment.length === 0) {
-            return res.status(404).json({ success: false, message: "Enrollment not found" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Enrollment not found" });
         }
         await query("UPDATE enrollments SET status = 'dropped' WHERE enrollment_id = ?", [req.params.id]);
-        return res.json({ success: true, message: "Course dropped successfully" });
+        return res.json({
+            success: true,
+            message: "Course dropped successfully",
+        });
     }
     catch (error) {
         return res.status(500).json({ success: false, message: "Server error" });
