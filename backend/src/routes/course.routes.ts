@@ -44,6 +44,15 @@ const isColumnNullable = async (
   );
   return String(rows?.[0]?.is_nullable || "YES").toUpperCase() === "YES";
 };
+const getExistingColumn = async (
+  tableName: string,
+  candidates: string[],
+): Promise<string | null> => {
+  for (const c of candidates) {
+    if (await columnExists(tableName, c)) return c;
+  }
+  return null;
+};
 // GET /api/courses — All authenticated users
 router.get("/", verifyToken, async (req: Request, res: Response) => {
   try {
@@ -81,18 +90,25 @@ router.get("/", verifyToken, async (req: Request, res: Response) => {
 router.get("/sections", verifyToken, async (req: Request, res: Response) => {
   try {
     const { semester, year, courseId, professorId } = req.query;
+    const hasGradeEntryControl = await tableExists("grade_entry_control");
+    const gradeJoin = hasGradeEntryControl
+      ? "LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id"
+      : "";
+    const gradeEnabledExpr = hasGradeEntryControl
+      ? "gec.is_enabled AS grade_entry_enabled"
+      : "0 AS grade_entry_enabled";
     let sql = `
       SELECT cs.section_id, cs.course_id, cs.professor_id, cs.semester, cs.year,
              cs.room_number, cs.schedule_time,
              c.course_code, c.course_title, c.credits,
              u.first_name, u.last_name,
              (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled_count,
-             gec.is_enabled AS grade_entry_enabled
+             ${gradeEnabledExpr}
       FROM course_sections cs
       JOIN courses c ON cs.course_id = c.course_id
       JOIN professors p ON cs.professor_id = p.professor_id
       JOIN users u ON p.user_id = u.user_id
-      LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id
+      ${gradeJoin}
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -141,48 +157,58 @@ router.get("/sections", verifyToken, async (req: Request, res: Response) => {
         columnExists("study_plans", "department_id"),
       ]);
 
-      if (hasStudyPlans && hasStudyPlanCourses) {
-        const planScopeConditions: string[] = [];
-        const planScopeParams: any[] = [];
+      const semesterColumn = hasStudyPlanCourses
+        ? await getExistingColumn("study_plan_courses", [
+            "semester_no",
+            "semester",
+          ])
+        : null;
+      if (hasStudyPlans && hasStudyPlanCourses && semesterColumn) {
+        // Build list of plan IDs the student qualifies for
+        const planIdConditions: string[] = [];
+        const planIdParams: any[] = [];
 
-        if (hasProgramColumn) {
-          planScopeConditions.push("sp.program_id = ?");
-          planScopeParams.push(Number(student.program_id || 0));
+        if (hasProgramColumn && student.program_id) {
+          planIdConditions.push("program_id = ?");
+          planIdParams.push(Number(student.program_id));
         }
-
-        if (hasProgramColumn && hasDepartmentColumn) {
-          planScopeConditions.push(
-            "(sp.program_id IS NULL AND (sp.department_id = ? OR sp.department_id IS NULL))",
-          );
-          planScopeParams.push(Number(student.department_id || 0));
-        } else if (!hasProgramColumn && hasDepartmentColumn) {
-          planScopeConditions.push(
-            "(sp.department_id = ? OR sp.department_id IS NULL)",
-          );
-          planScopeParams.push(Number(student.department_id || 0));
+        if (hasDepartmentColumn && student.department_id) {
+          planIdConditions.push("(program_id IS NULL AND department_id = ?)");
+          planIdParams.push(Number(student.department_id));
         }
+        planIdConditions.push("(program_id IS NULL AND department_id IS NULL)");
 
-        if (planScopeConditions.length > 0) {
-          const allowedRows = await query(
-            `SELECT 1
-             FROM study_plan_courses spc
-             JOIN study_plans sp ON sp.plan_id = spc.plan_id
-             WHERE spc.semester_no = ?
-               AND (${planScopeConditions.join(" OR ")})
-             LIMIT 1`,
-            [Number(student.semester || 1), ...planScopeParams],
+        console.log("[SECTIONS] Student program_id=", student.program_id, "department_id=", student.department_id, "semester=", student.semester);
+
+        if (planIdConditions.length > 0) {
+          const matchingPlans = await query(
+            `SELECT plan_id, plan_name, program_id, department_id FROM study_plans WHERE ${planIdConditions.join(" OR ")}`,
+            planIdParams,
           );
+          console.log("[SECTIONS] Matching plans:", matchingPlans);
 
-          if (allowedRows.length > 0) {
-            sql += ` AND cs.course_id IN (
-              SELECT DISTINCT spc.course_id
-              FROM study_plan_courses spc
-              JOIN study_plans sp ON sp.plan_id = spc.plan_id
-              WHERE spc.semester_no = ?
-                AND (${planScopeConditions.join(" OR ")})
-            )`;
-            params.push(Number(student.semester || 1), ...planScopeParams);
-            appliedStudyPlanFilter = true;
+          if (matchingPlans.length > 0) {
+            const planIds = matchingPlans.map((p: any) => p.plan_id);
+            const placeholders = planIds.map(() => "?").join(",");
+            const studentSemester = Number(student.semester || 1);
+
+            // Get course IDs for this semester + flexible courses (semester_no = 0)
+            const allowedCourses = await query(
+              `SELECT DISTINCT course_id, semester_no FROM study_plan_courses
+               WHERE plan_id IN (${placeholders})
+               AND (semester_no = ? OR semester_no = 0)`,
+              [...planIds, studentSemester],
+            );
+            console.log("[SECTIONS] Allowed courses for student:", allowedCourses);
+
+            if (allowedCourses.length > 0) {
+              const courseIds = allowedCourses.map((c: any) => c.course_id);
+              const coursePlaceholders = courseIds.map(() => "?").join(",");
+              sql += ` AND cs.course_id IN (${coursePlaceholders})`;
+              params.push(...courseIds);
+              appliedStudyPlanFilter = true;
+              console.log("[SECTIONS] Applied filter, courseIds:", courseIds);
+            }
           }
         }
       }
@@ -247,11 +273,13 @@ router.get(
         hasProgramColumn,
         hasPlanNameColumn,
         hasCreatedAtColumn,
+        hasStudyPlanCourses,
       ] = await Promise.all([
         columnExists("study_plans", "department_id"),
         columnExists("study_plans", "program_id"),
         columnExists("study_plans", "plan_name"),
         columnExists("study_plans", "created_at"),
+        tableExists("study_plan_courses"),
       ]);
       const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
       const departmentExpr = hasDepartmentColumn ? "sp.department_id" : "NULL";
@@ -267,16 +295,21 @@ router.get(
       const progJoin = hasProgramColumn
         ? "LEFT JOIN programs p ON sp.program_id = p.program_id"
         : "";
+      const coursesJoin = hasStudyPlanCourses
+        ? "LEFT JOIN study_plan_courses spc ON sp.plan_id = spc.plan_id"
+        : "";
+      const coursesCountExpr = hasStudyPlanCourses ? "COUNT(spc.id)" : "0";
       const rows = await query(
         `SELECT sp.plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${createdAtExpr} AS created_at,
               ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name,
-              COUNT(spc.id) AS courses_count
+              ${coursesCountExpr} AS courses_count
        FROM study_plans sp
-        ${deptJoin}
+       
+      ${deptJoin}
        ${progJoin}
-       LEFT JOIN study_plan_courses spc ON sp.plan_id = spc.plan_id
-      GROUP BY sp.plan_id, ${planNameExpr}, ${departmentExpr}, ${programExpr}, ${createdAtExpr}, ${departmentNameExpr}, ${programNameExpr}
-      ORDER BY sp.plan_name`,
+       ${coursesJoin}
+       GROUP BY sp.plan_id, ${planNameExpr}, ${departmentExpr}, ${programExpr}, ${createdAtExpr}, ${departmentNameExpr}, ${programNameExpr}
+       ORDER BY ${planNameExpr}`,
       );
       return res.json({ success: true, data: rows });
     } catch (error) {
@@ -301,7 +334,7 @@ router.post(
         await query(`
           CREATE TABLE \`study_plans\` (
             \`plan_id\` int(11) NOT NULL AUTO_INCREMENT,
-            \`name\` varchar(150) NOT NULL,
+            \`plan_name\` varchar(150) NOT NULL,
             \`department_id\` int(11) DEFAULT NULL,
             \`program_id\` int(11) DEFAULT NULL,
             \`created_at\` timestamp DEFAULT current_timestamp(),
@@ -364,6 +397,7 @@ router.post(
           message: "A valid program is required for this study-plans schema.",
         });
       }
+
       const columns = [planNameColumn];
       const placeholders = ["?"];
       const values: any[] = [planName];
@@ -453,6 +487,9 @@ router.get(
           columnExists("study_plans", "plan_name"),
         ]);
       const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
+      const planIdColumn =
+        (await getExistingColumn("study_plans", ["plan_id", "id"])) ||
+        "plan_id";
       const departmentExpr = hasDepartmentColumn ? "sp.department_id" : "NULL";
       const programExpr = hasProgramColumn ? "sp.program_id" : "NULL";
       const departmentNameExpr = hasDepartmentColumn
@@ -466,11 +503,11 @@ router.get(
         ? "LEFT JOIN programs p ON sp.program_id = p.program_id"
         : "";
       const planRows = await query(
-        `SELECT sp.plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name
+        `SELECT sp.${planIdColumn} AS plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name
        FROM study_plans sp
         ${deptJoin}
        ${progJoin}
-       WHERE sp.plan_id = ?`,
+       WHERE sp.${planIdColumn} = ?`,
         [req.params.id],
       );
       if (!planRows.length)
@@ -478,18 +515,65 @@ router.get(
           .status(404)
           .json({ success: false, message: "Plan not found" });
 
-      const items = await query(
-        `SELECT spc.id, spc.course_id, spc.year_no, spc.semester_no, spc.is_required, spc.course_bucket,
-         c.course_code, c.course_title, c.credits
-       FROM study_plan_courses spc
-       JOIN courses c ON spc.course_id = c.course_id
-       WHERE spc.plan_id = ?
-       ORDER BY spc.year_no ASC, spc.semester_no ASC, c.course_code ASC`,
-        [req.params.id],
-      );
+      let items: any[] = [];
+      if (await tableExists("study_plan_courses")) {
+        const spcPlanIdColumn = await getExistingColumn("study_plan_courses", [
+          "plan_id",
+          "study_plan_id",
+        ]);
+        const yearColumn = await getExistingColumn("study_plan_courses", [
+          "year_no",
+          "year",
+        ]);
+        const semesterColumn = await getExistingColumn("study_plan_courses", [
+          "semester_no",
+          "semester",
+        ]);
+        if (!spcPlanIdColumn || !yearColumn || !semesterColumn) {
+          return res.json({
+            success: true,
+            data: { ...planRows[0], items: [] },
+          });
+        }
+        const hasCourseBucket = await columnExists(
+          "study_plan_courses",
+          "course_bucket",
+        );
+        const hasIsFlexible = await columnExists(
+          "study_plan_courses",
+          "is_flexible",
+        );
+        items = await query(
+          `SELECT spc.id, spc.course_id, spc.${yearColumn} AS year_no, spc.${semesterColumn} AS semester_no, spc.is_required, ${
+            hasCourseBucket ? "spc.course_bucket" : "'major' AS course_bucket"
+          }, ${
+            hasIsFlexible ? "spc.is_flexible" : "0 AS is_flexible"
+          },
+                c.course_code, c.course_title, c.credits
+           FROM study_plan_courses spc
+           JOIN courses c ON spc.course_id = c.course_id
+           WHERE spc.${spcPlanIdColumn} = ?
+           ORDER BY spc.${yearColumn} ASC, spc.${semesterColumn} ASC, c.course_code ASC`,
+          [req.params.id],
+        );
+
+        for (const item of items) {
+          const prereqs = await query(
+            `SELECT c.course_code, c.course_title
+             FROM prerequisites p
+             JOIN courses c ON p.required_course_id = c.course_id
+             WHERE p.course_id = ?`,
+            [item.course_id],
+          );
+          item.prerequisites = prereqs;
+        }
+      }
+
+      return res.json({ success: true, data: { ...planRows[0], items } });
 
       return res.json({ success: true, data: { ...planRows[0], items } });
     } catch (error) {
+      console.error("Study-plan details error:", error);
       return res.status(500).json({ success: false, message: "Server error" });
     }
   },
@@ -519,18 +603,31 @@ router.get(
       }
 
       const student = studentRows[0];
+      console.log("[MY-PLAN] Student: program_id=", student.program_id, "department_id=", student.department_id);
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+
+      if (student.program_id) {
+        conditions.push("program_id = ?");
+        params.push(Number(student.program_id));
+      }
+      if (student.department_id) {
+        conditions.push("(program_id IS NULL AND department_id = ?)");
+        params.push(Number(student.department_id));
+      }
+      conditions.push("(program_id IS NULL AND department_id IS NULL)");
+
+      console.log("[MY-PLAN] Conditions:", conditions.join(" OR "));
+      console.log("[MY-PLAN] Params:", params);
+
       const plans = await query(
         `SELECT plan_id, ${planNameExpr} AS plan_name, department_id, program_id
          FROM study_plans
-         WHERE (program_id = ?)
-            OR (program_id IS NULL AND (department_id = ? OR department_id IS NULL))
-         ORDER BY CASE WHEN program_id = ? THEN 0 ELSE 1 END, plan_id`,
-        [
-          student.program_id || 0,
-          student.department_id || 0,
-          student.program_id || 0,
-        ],
+         WHERE ${conditions.join(" OR ")}`,
+        params,
       );
+      console.log("[MY-PLAN] Found plans:", plans);
 
       if (!plans.length) {
         return res.json({
@@ -543,11 +640,15 @@ router.get(
           },
         });
       }
-
       const planIds = plans.map((p: any) => Number(p.plan_id));
+      const hasIsFlexible = await columnExists(
+        "study_plan_courses",
+        "is_flexible",
+      );
       const items = await query(
         `SELECT spc.plan_id, spc.course_id, spc.year_no, spc.semester_no, spc.is_required, spc.course_bucket,
                 c.course_code, c.course_title, c.credits
+         ${hasIsFlexible ? ", spc.is_flexible" : ", 0 AS is_flexible"}
          FROM study_plan_courses spc
          JOIN courses c ON c.course_id = spc.course_id
          WHERE spc.plan_id IN (${planIds.map(() => "?").join(",")})
@@ -555,9 +656,22 @@ router.get(
         planIds,
       );
 
+      for (const item of items) {
+        const prereqs = await query(
+          `SELECT c.course_code, c.course_title
+           FROM prerequisites p
+           JOIN courses c ON p.required_course_id = c.course_id
+           WHERE p.course_id = ?`,
+          [item.course_id],
+        );
+        item.prerequisites = prereqs;
+      }
+
       const grouped = new Map<string, any[]>();
       items.forEach((item: any) => {
-        const key = `${item.year_no}-${item.semester_no}`;
+        const key = item.is_flexible
+          ? `0-0`
+          : `${item.year_no}-${item.semester_no}`;
         const list = grouped.get(key) || [];
         list.push(item);
         grouped.set(key, list);
@@ -568,16 +682,18 @@ router.get(
         return {
           yearNo,
           semesterNo,
-          calendarYear:
+          calendarYear: yearNo === 0 ? null :
             Number(student.enrollment_year || new Date().getFullYear()) +
             yearNo -
             1,
+          isFlexible: yearNo === 0 && semesterNo === 0,
           courses: list.map((item: any) => ({
             courseId: item.course_id,
             code: item.course_code,
             name: item.course_title,
             credits: Number(item.credits || 0),
             bucket: item.course_bucket || "major",
+            prerequisites: item.prerequisites || [],
           })),
         };
       });
@@ -588,7 +704,7 @@ router.get(
           enrollmentYear: student.enrollment_year,
           programName: student.program_name,
           departmentName: student.department_name,
-          planNames: plans.map((p: any) => p.name),
+          planNames: plans.map((p: any) => p.plan_name),
           semesters,
         },
       });
@@ -632,19 +748,79 @@ router.post(
           message: "courseId, yearNo and semesterNo are required",
         });
       }
-      await query(
-        `INSERT INTO study_plan_courses (plan_id, course_id, year_no, semester_no, is_required, course_bucket)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE year_no = VALUES(year_no), semester_no = VALUES(semester_no), is_required = VALUES(is_required), course_bucket = VALUES(course_bucket)`,
-        [
-          req.params.id,
-          courseId,
-          yearNo,
-          semesterNo,
-          isRequired === false ? 0 : 1,
-          String(req.body.courseBucket || "major"),
-        ],
+      const planIdColumn =
+        (await getExistingColumn("study_plan_courses", [
+          "plan_id",
+          "study_plan_id",
+        ])) || "plan_id";
+      const yearColumn =
+        (await getExistingColumn("study_plan_courses", ["year_no", "year"])) ||
+        "year_no";
+      const semesterColumn =
+        (await getExistingColumn("study_plan_courses", [
+          "semester_no",
+          "semester",
+        ])) || "semester_no";
+      const hasIsRequired = await columnExists(
+        "study_plan_courses",
+        "is_required",
       );
+      const hasCourseBucket = await columnExists(
+        "study_plan_courses",
+        "course_bucket",
+      );
+      const hasIsFlexible = await columnExists(
+        "study_plan_courses",
+        "is_flexible",
+      );
+      const existing = await query(
+        `SELECT id FROM study_plan_courses WHERE ${planIdColumn} = ? AND course_id = ? LIMIT 1`,
+        [req.params.id, courseId],
+      );
+      if (existing.length) {
+        const sets = [`${yearColumn} = ?`, `${semesterColumn} = ?`];
+        const params: any[] = [yearNo, semesterNo];
+        if (hasIsRequired) {
+          sets.push("is_required = ?");
+          params.push(isRequired === false ? 0 : 1);
+        }
+        if (hasCourseBucket) {
+          sets.push("course_bucket = ?");
+          params.push(String(req.body.courseBucket || "major"));
+        }
+        if (hasIsFlexible) {
+          sets.push("is_flexible = ?");
+          params.push(req.body.isFlexible === true ? 1 : 0);
+        }
+        params.push(req.params.id, courseId);
+        await query(
+          `UPDATE study_plan_courses SET ${sets.join(", ")} WHERE ${planIdColumn} = ? AND course_id = ?`,
+          params,
+        );
+      } else {
+        const cols = [planIdColumn, "course_id", yearColumn, semesterColumn];
+        const qs = ["?", "?", "?", "?"];
+        const params: any[] = [req.params.id, courseId, yearNo, semesterNo];
+        if (hasIsRequired) {
+          cols.push("is_required");
+          qs.push("?");
+          params.push(isRequired === false ? 0 : 1);
+        }
+        if (hasCourseBucket) {
+          cols.push("course_bucket");
+          qs.push("?");
+          params.push(String(req.body.courseBucket || "major"));
+        }
+        if (hasIsFlexible) {
+          cols.push("is_flexible");
+          qs.push("?");
+          params.push(req.body.isFlexible === true ? 1 : 0);
+        }
+        await query(
+          `INSERT INTO study_plan_courses (${cols.join(", ")}) VALUES (${qs.join(", ")})`,
+          params,
+        );
+      }
       return res
         .status(201)
         .json({ success: true, message: "Course added to study plan" });
@@ -668,7 +844,7 @@ router.put(
           yearNo,
           semesterNo,
           isRequired === false ? 0 : 1,
-          String(req.body.courseBucket || "major"),
+          String(courseBucket || "major"),
           req.params.id,
           req.params.courseId,
         ],
@@ -710,16 +886,28 @@ router.get(
     try {
       const hasPlanNameColumn = await columnExists("study_plans", "plan_name");
       const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
+      const hasIsFlexible = await columnExists(
+        "study_plan_courses",
+        "is_flexible",
+      );
+      const hasCourseBucket = await columnExists(
+        "study_plan_courses",
+        "course_bucket",
+      );
       const rows = await query(
-        `SELECT sp.plan_id, ${planNameExpr} AS plan_name, spc.year_no, spc.semester_no, spc.is_required
-       FROM study_plan_courses spc
-       JOIN study_plans sp ON spc.plan_id = sp.plan_id
-       WHERE spc.course_id = ?
-       ORDER BY  ${planNameExpr}, spc.year_no, spc.semester_no`,
+        `SELECT sp.plan_id, ${planNameExpr} AS plan_name, spc.year_no, spc.semester_no, spc.is_required,
+         ${hasIsFlexible ? "spc.is_flexible" : "0 AS is_flexible"},
+         ${hasCourseBucket ? "spc.course_bucket" : "'major' AS course_bucket"},
+         sp.program_id, sp.department_id
+        FROM study_plan_courses spc
+        JOIN study_plans sp ON spc.plan_id = sp.plan_id
+        WHERE spc.course_id = ?
+          ORDER BY ${planNameExpr}, spc.year_no, spc.semester_no`,
         [req.params.id],
       );
       return res.json({ success: true, data: rows });
     } catch (error) {
+      console.error("Study-plan usage error:", error);
       return res.status(500).json({ success: false, message: "Server error" });
     }
   },

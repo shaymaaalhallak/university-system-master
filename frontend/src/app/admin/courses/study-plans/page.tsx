@@ -55,13 +55,13 @@ export default function StudyPlansListPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-[#F1EFEA]">
             <tr>
-              {["Plan name", "Major", "Number of courses", "Actions"].map(
-                (h) => (
-                  <th key={h} className="px-4 py-3 text-left">
-                    {h}
-                  </th>
-                ),
-              )}
+            {["Plan name", "Scope", "Type", "Number of courses", "Actions"].map(
+              (h) => (
+                <th key={h} className="px-4 py-3 text-left">
+                  {h}
+                </th>
+              ),
+            )}
             </tr>
           </thead>
           <tbody>
@@ -69,7 +69,22 @@ export default function StudyPlansListPage() {
               <tr key={p.plan_id} className="border-t">
                 <td className="px-4 py-3">{p.plan_name}</td>
                 <td className="px-4 py-3">
-                  {p.program_name || p.department_name || "General"}
+                  {p.program_name || (
+                    <span className="text-blue-600 font-medium">
+                      {p.department_name || "All Departments"} (Common)
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {p.program_id ? (
+                    <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
+                      Program-specific
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                      Common/Shared
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3">{p.courses_count}</td>
                 <td className="px-4 py-3 flex gap-3">
@@ -90,7 +105,7 @@ export default function StudyPlansListPage() {
             ))}
             {!plans.length && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   No study plans found
                 </td>
               </tr>

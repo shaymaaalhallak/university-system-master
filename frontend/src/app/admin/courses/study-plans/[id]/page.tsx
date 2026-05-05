@@ -35,9 +35,14 @@ export default function StudyPlanDetailsPage() {
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};
     for (const item of plan?.items || []) {
-      const key = `Semester ${item.semester_no} (Year ${item.year_no})`;
-      map[key] = map[key] || [];
-      map[key].push(item);
+      if (item.is_flexible) {
+        if (!map["Flexible (Any Semester)"]) map["Flexible (Any Semester)"] = [];
+        map["Flexible (Any Semester)"].push(item);
+      } else {
+        const key = `Semester ${item.semester_no} (Year ${item.year_no})`;
+        map[key] = map[key] || [];
+        map[key].push(item);
+      }
     }
     return map;
   }, [plan?.items]);
@@ -96,8 +101,26 @@ export default function StudyPlanDetailsPage() {
                   </p>
                   <p className="text-xs text-gray-500">
                     {i.is_required ? "Required" : "Optional"} •{" "}
-                    {(i.course_bucket || "major").toUpperCase()}{" "}
+                    {{
+                      major: "Program Course",
+                      english: "English Course (Common)",
+                      arabic: "Arabic Course (Common)",
+                      culture: "Culture Course (Common)",
+                    }[i.course_bucket as string] || "Program Course"}
+                    {i.is_flexible && (
+                      <span className="ml-2 px-1 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                        Any Semester
+                      </span>
+                    )}
                   </p>
+                  {i.prerequisites && i.prerequisites.length > 0 && (
+                    <p className="text-xs text-red-600 mt-1">
+                      Prerequisites:{" "}
+                      {i.prerequisites
+                        .map((p: any) => `${p.course_code} - ${p.course_title}`)
+                        .join(", ")}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button

@@ -29,7 +29,7 @@ export default function CourseStudyPlanUsagePage() {
         <table className="min-w-full text-sm">
           <thead className="bg-[#F1EFEA]">
             <tr>
-              {["Plan", "Year", "Semester", "Required"].map((h) => (
+              {["Plan", "Scope", "Year", "Semester", "Type", "Required"].map((h) => (
                 <th key={h} className="px-4 py-3 text-left">
                   {h}
                 </th>
@@ -40,8 +40,43 @@ export default function CourseStudyPlanUsagePage() {
             {rows.map((r, i) => (
               <tr key={i} className="border-t">
                 <td className="px-4 py-3">{r.plan_name}</td>
-                <td className="px-4 py-3">{r.year_no}</td>
-                <td className="px-4 py-3">{r.semester_no}</td>
+                <td className="px-4 py-3">
+                  {r.program_id ? (
+                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                      Program
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                      Common
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {r.is_flexible ? (
+                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">
+                      Any
+                    </span>
+                  ) : (
+                    r.year_no
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {r.is_flexible ? (
+                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">
+                      Flexible
+                    </span>
+                  ) : (
+                    r.semester_no
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {{
+                    major: "Program",
+                    english: "English",
+                    arabic: "Arabic",
+                    culture: "Culture",
+                  }[r.course_bucket as string] || r.course_bucket || "Program"}
+                </td>
                 <td className="px-4 py-3">
                   {r.is_required ? "Required" : "Optional"}
                 </td>
@@ -49,7 +84,7 @@ export default function CourseStudyPlanUsagePage() {
             ))}
             {!rows.length && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                   This course is not in any study plan.
                 </td>
               </tr>

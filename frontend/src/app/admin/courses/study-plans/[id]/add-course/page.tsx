@@ -22,11 +22,12 @@ export default function AddCourseToPlanPage() {
   const router = useRouter();
   const [plan, setPlan] = useState<any>(null);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
+  const [selectedCourseIds, setSelectedCourseIds] = useState<number[]>([]);
   const [yearNo, setYearNo] = useState("1");
   const [semesterNo, setSemesterNo] = useState("1");
   const [isRequired, setIsRequired] = useState(true);
   const [courseBucket, setCourseBucket] = useState("major");
+  const [isFlexible, setIsFlexible] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -69,20 +70,23 @@ export default function AddCourseToPlanPage() {
 
   const addCourse = async () => {
     setError("");
-    if (!selectedCourseId) {
+    if (!selectedCourseIds.length) {
       setError("Please choose a course from the table.");
       return;
     }
 
     try {
       setSaving(true);
-      await api.post(`/courses/study-plans/${id}/courses`, {
-        courseId: selectedCourseId,
-        yearNo: Number(yearNo || "1"),
-        semesterNo: Number(semesterNo || "1"),
-        isRequired,
-        courseBucket,
-      });
+      for (const courseId of selectedCourseIds) {
+        await api.post(`/courses/study-plans/${id}/courses`, {
+          courseId,
+          yearNo: Number(yearNo || "1"),
+          semesterNo: Number(semesterNo || "1"),
+          isRequired,
+          courseBucket,
+          isFlexible,
+        });
+      }
       router.push(`/admin/courses/study-plans/${id}`);
     } catch (e: any) {
       setError(
@@ -127,7 +131,17 @@ export default function AddCourseToPlanPage() {
           Step 1: select a course from the table. Step 2: choose year/semester
           and save.
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            <strong>Course Categories:</strong>
+            <br />• <strong>Program Courses (Major)</strong> – Specific to this program only
+            <br />• <strong>English/Arabic/Culture Courses</strong> – Common courses shared across all programs in this department
+            <br />
+            <br />
+            <strong>Any Semester (Flexible):</strong> Check this for courses that students can take in ANY semester (e.g. English, Arabic, Culture). Uncheck for courses that must be taken in a specific semester.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <input
             className="border border-[#DED7CB] bg-white rounded-lg p-2"
             placeholder="Year number"
@@ -156,12 +170,27 @@ export default function AddCourseToPlanPage() {
             className="border border-[#DED7CB] bg-white rounded-lg p-2"
             value={courseBucket}
             onChange={(e) => setCourseBucket(e.target.value)}
+            title="Course category type"
           >
-            <option value="major">Major Course</option>
-            <option value="english">English</option>
-            <option value="arabic">Arabic</option>
-            <option value="culture">Culture</option>
+            <option value="major">Program Courses (Major)</option>
+            <option value="english">English Courses (All Programs)</option>
+            <option value="arabic">Arabic Courses (All Programs)</option>
+            <option value="culture">Culture Courses (All Programs)</option>
           </select>
+          <label className="flex items-center gap-2 border border-[#DED7CB] bg-white rounded-lg px-3">
+            <input
+              type="checkbox"
+              checked={isFlexible}
+              onChange={(e) => {
+                setIsFlexible(e.target.checked);
+                if (e.target.checked) {
+                  setYearNo("0");
+                  setSemesterNo("0");
+                }
+              }}
+            />
+            Any Semester (flexible)
+          </label>
           <button
             onClick={addCourse}
             disabled={saving}
@@ -170,9 +199,9 @@ export default function AddCourseToPlanPage() {
             {saving ? "Saving..." : "Add to Plan"}
           </button>
         </div>
-        {selectedCourseId && (
+        {!!selectedCourseIds.length && (
           <p className="text-sm text-gray-700">
-            Selected course ID: {selectedCourseId}
+            Selected course IDs: {selectedCourseIds.join(", ")}
           </p>
         )}
         {error && <p className="text-sm text-red-700">{error}</p>}
@@ -209,14 +238,20 @@ export default function AddCourseToPlanPage() {
             {availableCourses.map((course) => (
               <tr
                 key={course.course_id}
-                className={`border-t ${selectedCourseId === course.course_id ? "bg-[#F9F1EE]" : ""}`}
+                className={`border-t ${selectedCourseIds.includes(course.course_id) ? "bg-[#F9F1EE]" : ""}`}
               >
                 <td className="px-4 py-3">
                   <button
-                    onClick={() => setSelectedCourseId(course.course_id)}
+                    onClick={() =>
+                      setSelectedCourseIds((prev) =>
+                        prev.includes(course.course_id)
+                          ? prev.filter((id) => id !== course.course_id)
+                          : [...prev, course.course_id],
+                      )
+                    }
                     className="px-3 py-1 rounded border border-[#DED7CB] bg-white hover:bg-[#F2EBDD]"
                   >
-                    {selectedCourseId === course.course_id
+                    {selectedCourseIds.includes(course.course_id)
                       ? "Selected"
                       : "Select"}
                   </button>

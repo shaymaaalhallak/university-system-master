@@ -107,10 +107,13 @@ export default function CreateStudyPlanPage() {
           ))}
         </select>
 
-        <p className="text-xs text-gray-600">
-          Keep Program empty for common/shared plans (e.g. English, Arabic,
-          Culture) within this department.
-        </p>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-xs text-blue-800">
+            <strong>How to structure study plans:</strong>
+            <br />• <strong>Program-specific plan:</strong> Select both Department and Program – for major courses unique to that program
+            <br />• <strong>Common/Shared plan:</strong> Select Department only (leave Program empty) – for courses shared by all programs (e.g. English, Arabic, Culture)
+          </p>
+        </div>
         {error && <p className="text-sm text-red-700">{error}</p>}
         <div className="flex gap-2">
           <button

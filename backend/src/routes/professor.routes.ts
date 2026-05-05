@@ -9,6 +9,15 @@ const query = (sql: string, params: any[] = []): Promise<any> =>
     db.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)))
   );
 
+  const tableExists = async (tableName: string): Promise<boolean> => {
+  const rows = await query(
+    `SELECT COUNT(*) AS cnt
+     FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+    [tableName]
+  );
+  return Number(rows[0]?.cnt ?? 0) > 0;
+};
 const getProfessorId = async (userId: number): Promise<number | null> => {
   const rows = await query("SELECT professor_id FROM professors WHERE user_id = ?", [userId]);
   return rows.length > 0 ? rows[0].professor_id : null;
@@ -61,9 +70,28 @@ router.get("/sections/:sectionId/students", verifyToken, requireRole("professor"
       }
     }
 
+     const hasDepartmentsTable = await tableExists("departments");
+    const hasProgramsTable = await tableExists("programs");
+
+    const departmentSelect = hasDepartmentsTable
+      ? ", d.department_name"
+      : ", NULL AS department_name";
+    const departmentJoin = hasDepartmentsTable
+      ? "LEFT JOIN departments d ON s.department_id = d.department_id"
+      : "";
+
+    const programSelect = hasProgramsTable
+      ? ", pr.program_name"
+      : ", NULL AS program_name";
+    const programJoin = hasProgramsTable
+      ? "LEFT JOIN programs pr ON s.program_id = pr.program_id"
+      : "";
+
     const rows = await query(
       `SELECT u.user_id, u.first_name, u.last_name, u.email,
-              s.student_id, s.semester as student_semester, s.gpa,
+             s.student_id, s.semester as student_semester, s.gpa
+              ${departmentSelect}
+              ${programSelect},
               e.enrollment_id, e.enrolled_at, e.status AS enrollment_status,
               g.total_score, g.letter_grade,
               (SELECT SUM(a.status = 'Present') FROM attendance a WHERE a.student_id = s.student_id AND a.section_id = ?) AS present_count,
@@ -71,12 +99,20 @@ router.get("/sections/:sectionId/students", verifyToken, requireRole("professor"
        FROM enrollments e
        JOIN students s ON e.student_id = s.student_id
        JOIN users u ON s.user_id = u.user_id
+        ${departmentJoin}
+       ${programJoin}
        LEFT JOIN grades g ON g.student_id = e.student_id AND g.section_id = e.section_id
        WHERE e.section_id = ? AND e.status = 'active'
        ORDER BY u.last_name`,
       [req.params.sectionId, req.params.sectionId, req.params.sectionId]
     );
-    return res.json({ success: true, data: rows });
+     return res.json({
+      success: true,
+      data: rows.map((row: any) => ({
+        ...row,
+        major: row.program_name || row.department_name || "Undeclared",
+      })),
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Server error" });

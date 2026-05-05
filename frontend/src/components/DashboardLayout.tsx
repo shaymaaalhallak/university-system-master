@@ -17,6 +17,7 @@ import {
   ScrollText,
   UserSquare2,
   X,
+  FileSpreadsheet,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -44,6 +45,8 @@ export default function DashboardLayout({
     { href: "/professor/attendance", label: "Attendance", icon: Calendar },
     { href: "/professor/grades", label: "Gradebook", icon: GraduationCap },
     { href: "/professor/assignments", label: "Assignments", icon: ScrollText },
+        { href: "/professor/export", label: "Export Excel", icon: FileSpreadsheet },
+
     { href: "/professor/cv", label: "My CV", icon: UserSquare2 },
   ];
 

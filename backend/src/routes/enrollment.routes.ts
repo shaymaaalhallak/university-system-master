@@ -130,20 +130,24 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { sectionId } = req.body;
+      console.log("[ENROLL] Step 1: Request received, sectionId=", sectionId);
       if (!sectionId)
         return res
           .status(400)
           .json({ success: false, message: "sectionId is required" });
 
       const studentId = await getStudentId(req.user!.id);
+      console.log("[ENROLL] Step 2: studentId=", studentId);
       if (!studentId)
         return res
           .status(404)
           .json({ success: false, message: "Student profile not found" });
+
       const studentPlanRows = await query(
         "SELECT department_id, program_id, semester FROM students WHERE student_id = ? LIMIT 1",
         [studentId],
       );
+      console.log("[ENROLL] Step 3: student profile=", studentPlanRows[0]);
       if (!studentPlanRows.length) {
         return res.status(404).json({
           success: false,
@@ -151,18 +155,20 @@ router.post(
         });
       }
       const studentPlan = studentPlanRows[0];
-      // Get section details
+
       const sections = await query(
         `SELECT cs.section_id, cs.course_id, cs.semester, cs.year, c.credits
-       FROM course_sections cs JOIN courses c ON cs.course_id = c.course_id
-       WHERE cs.section_id = ?`,
+         FROM course_sections cs JOIN courses c ON cs.course_id = c.course_id
+         WHERE cs.section_id = ?`,
         [sectionId],
       );
+      console.log("[ENROLL] Step 4: section details=", sections[0]);
       if (sections.length === 0)
         return res
           .status(404)
           .json({ success: false, message: "Section not found" });
       const section = sections[0];
+
       const [
         hasStudyPlans,
         hasStudyPlanCourses,
@@ -174,65 +180,71 @@ router.post(
         columnExists("study_plans", "program_id"),
         columnExists("study_plans", "department_id"),
       ]);
+      console.log("[ENROLL] Step 5: hasStudyPlans=", hasStudyPlans, "hasStudyPlanCourses=", hasStudyPlanCourses);
 
       if (hasStudyPlans && hasStudyPlanCourses) {
-        const planScopeConditions: string[] = [];
-        const planScopeParams: any[] = [];
+        // Build list of plan IDs the student qualifies for
+        const planIdConditions: string[] = [];
+        const planIdParams: any[] = [];
 
-        if (hasProgramColumn) {
-          planScopeConditions.push("sp.program_id = ?");
-          planScopeParams.push(Number(studentPlan.program_id || 0));
+        if (hasProgramColumn && studentPlan.program_id) {
+          planIdConditions.push("program_id = ?");
+          planIdParams.push(Number(studentPlan.program_id));
         }
-        if (hasProgramColumn && hasDepartmentColumn) {
-          planScopeConditions.push(
-            "(sp.program_id IS NULL AND (sp.department_id = ? OR sp.department_id IS NULL))",
-          );
-          planScopeParams.push(Number(studentPlan.department_id || 0));
-        } else if (!hasProgramColumn && hasDepartmentColumn) {
-          planScopeConditions.push(
-            "(sp.department_id = ? OR sp.department_id IS NULL)",
-          );
-          planScopeParams.push(Number(studentPlan.department_id || 0));
+        if (hasDepartmentColumn && studentPlan.department_id) {
+          planIdConditions.push("(program_id IS NULL AND department_id = ?)");
+          planIdParams.push(Number(studentPlan.department_id));
         }
+        // Universal common plans
+        planIdConditions.push("(program_id IS NULL AND department_id IS NULL)");
 
-        if (planScopeConditions.length > 0) {
-          const semesterAllowedRows = await query(
-            `SELECT 1
-           FROM study_plan_courses spc
-           JOIN study_plans sp ON sp.plan_id = spc.plan_id
-           WHERE spc.semester_no = ?
-             AND (${planScopeConditions.join(" OR ")})
-           LIMIT 1`,
-            [Number(studentPlan.semester || 1), ...planScopeParams],
+        console.log("[ENROLL] Step 6: plan conditions=", planIdConditions.join(" OR "), "params=", planIdParams);
+
+        if (planIdConditions.length > 0) {
+          // Get all matching plan IDs
+          const matchingPlans = await query(
+            `SELECT plan_id FROM study_plans WHERE ${planIdConditions.join(" OR ")}`,
+            planIdParams,
           );
+          console.log("[ENROLL] Step 7: matching plan IDs=", matchingPlans);
 
-          if (semesterAllowedRows.length > 0) {
-            const allowedRows = await query(
-              `SELECT 1
-             FROM study_plan_courses spc
-             JOIN study_plans sp ON sp.plan_id = spc.plan_id
-             WHERE spc.course_id = ?
-               AND spc.semester_no = ?
-               AND (${planScopeConditions.join(" OR ")})
-             LIMIT 1`,
-              [
-                section.course_id,
-                Number(studentPlan.semester || 1),
-                ...planScopeParams,
-              ],
+          if (matchingPlans.length > 0) {
+            const planIds = matchingPlans.map((p: any) => p.plan_id);
+            const placeholders = planIds.map(() => "?").join(",");
+            const studentSemester = Number(studentPlan.semester || 1);
+
+            // Check if ANY course exists for this student's semester in their plans
+            const semesterHasCourses = await query(
+              `SELECT 1 FROM study_plan_courses WHERE semester_no = ? AND plan_id IN (${placeholders}) LIMIT 1`,
+              [studentSemester, ...planIds],
             );
-            if (!allowedRows.length) {
-              return res.status(400).json({
-                success: false,
-                message:
-                  "This course section is not available for your current study-plan semester.",
-              });
+            console.log("[ENROLL] Step 8: semester_has_courses=", semesterHasCourses.length > 0);
+
+            if (semesterHasCourses.length > 0) {
+              // Check if THIS specific course is in the plan for this semester
+              // OR if it's a flexible course (semester_no = 0)
+              const allowedRows = await query(
+                `SELECT 1, spc.semester_no FROM study_plan_courses spc
+                 WHERE spc.course_id = ? AND spc.plan_id IN (${placeholders})
+                 AND (spc.semester_no = ? OR spc.semester_no = 0)
+                 LIMIT 1`,
+                [section.course_id, ...planIds, studentSemester],
+              );
+              console.log("[ENROLL] Step 9: allowed_rows=", allowedRows.length > 0, allowedRows[0]);
+              if (!allowedRows.length) {
+                return res.status(400).json({
+                  success: false,
+                  message:
+                    "This course is not in your study plan for the current semester.",
+                });
+              }
             }
           }
         }
       }
 
       // Check already enrolled
+      console.log("[ENROLL] Step 10: checking duplicate enrollment");
       const existing = await query(
         "SELECT enrollment_id FROM enrollments WHERE student_id = ? AND section_id = ? AND status = 'active'",
         [studentId, sectionId],
@@ -245,16 +257,18 @@ router.post(
       }
 
       // Check prerequisites
+      console.log("[ENROLL] Step 11: checking prerequisites for course_id=", section.course_id);
       const prereqs = await query(
         "SELECT required_course_id FROM prerequisites WHERE course_id = ?",
         [section.course_id],
       );
+      console.log("[ENROLL] Step 11b: prereqs=", prereqs);
 
       for (const prereq of prereqs) {
         const completed = await query(
           `SELECT g.grade_id FROM grades g
-         JOIN course_sections cs ON g.section_id = cs.section_id
-         WHERE g.student_id = ? AND cs.course_id = ? AND g.letter_grade NOT IN ('F', '')`,
+           JOIN course_sections cs ON g.section_id = cs.section_id
+           WHERE g.student_id = ? AND cs.course_id = ? AND g.letter_grade NOT IN ('F', '')`,
           [studentId, prereq.required_course_id],
         );
         if (completed.length === 0) {
@@ -273,17 +287,19 @@ router.post(
         }
       }
 
-      // Check 19-credit maximum for current semester
+      // Check 19-credit maximum
+      console.log("[ENROLL] Step 12: checking credit limit");
       const creditCheck = await query(
         `SELECT COALESCE(SUM(c.credits), 0) AS total_credits
-       FROM enrollments e
-       JOIN course_sections cs ON e.section_id = cs.section_id
-       JOIN courses c ON cs.course_id = c.course_id
-       WHERE e.student_id = ? AND e.status = 'active' AND cs.semester = ? AND cs.year = ?`,
+         FROM enrollments e
+         JOIN course_sections cs ON e.section_id = cs.section_id
+         JOIN courses c ON cs.course_id = c.course_id
+         WHERE e.student_id = ? AND e.status = 'active' AND cs.semester = ? AND cs.year = ?`,
         [studentId, section.semester, section.year],
       );
 
       const currentCredits = Number(creditCheck[0].total_credits);
+      console.log("[ENROLL] Step 12b: current_credits=", currentCredits, "section_credits=", section.credits);
       if (currentCredits + section.credits > 19) {
         return res.status(400).json({
           success: false,
@@ -292,19 +308,26 @@ router.post(
       }
 
       // All checks passed — enroll
+      console.log("[ENROLL] Step 13: inserting enrollment");
       const result: any = await query(
         "INSERT INTO enrollments (student_id, section_id, status) VALUES (?, ?, 'active')",
         [studentId, sectionId],
       );
 
+      console.log("[ENROLL] SUCCESS: enrollmentId=", result.insertId);
       return res.status(201).json({
         success: true,
         message: "Successfully enrolled",
         data: { enrollmentId: result.insertId },
       });
-    } catch (error) {
-      console.error(error);
-      return res.status(500).json({ success: false, message: "Server error" });
+    } catch (error: any) {
+      console.error("[ENROLL] ERROR:", error.message);
+      console.error("[ENROLL] ERROR STACK:", error.stack);
+      return res.status(500).json({
+        success: false,
+        message: "Server error during enrollment",
+        error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
     }
   },
 );

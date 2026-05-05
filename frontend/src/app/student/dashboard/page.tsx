@@ -43,12 +43,14 @@ interface DashboardData {
     semesters: Array<{
       yearNo: number;
       semesterNo: number;
-      calendarYear: number;
+      calendarYear: number | null;
+      isFlexible: boolean;
       courses: Array<{
         code: string;
         name: string;
         credits: number;
         bucket: string;
+        prerequisites: Array<{ course_code: string; course_title: string }>;
       }>;
     }>;
   };
@@ -254,20 +256,47 @@ export default function StudentDashboard() {
             {(data?.studyPlan?.semesters || []).map((semester) => (
               <div
                 key={`${semester.yearNo}-${semester.semesterNo}`}
-                className="rounded-xl border border-[#eadcc6] bg-[#fffaf3] p-4"
+                className={`rounded-xl border p-4 ${
+                  semester.isFlexible
+                    ? "border-blue-200 bg-blue-50"
+                    : "border-[#eadcc6] bg-[#fffaf3]"
+                }`}
               >
                 <p className="font-bold text-[#4e1020]">
-                  Semester {semester.semesterNo} (Year {semester.yearNo} -{" "}
-                  {semester.calendarYear})
+                  {semester.isFlexible
+                    ? "Flexible Courses (Can be taken in any semester)"
+                    : `Semester ${semester.semesterNo} (Year ${semester.yearNo} - ${semester.calendarYear})`}
                 </p>
                 <div className="mt-2 space-y-1 text-sm text-[#6b5848]">
                   {semester.courses.map((course) => (
-                    <p
+                    <div
                       key={`${semester.yearNo}-${semester.semesterNo}-${course.code}`}
+                      className="py-1"
                     >
-                      {course.code} - {course.name} - {course.credits} credits
-                      {course.bucket !== "major" ? ` (${course.bucket})` : ""}
-                    </p>
+                      <p>
+                        {course.code} - {course.name} - {course.credits} credits
+                        {course.bucket !== "major"
+                          ? ` (${
+                              {
+                                english: "English Course",
+                                arabic: "Arabic Course",
+                                culture: "Culture Course",
+                              }[course.bucket] || course.bucket
+                            })`
+                          : " (Program Course)"}
+                      </p>
+                      {course.prerequisites &&
+                        course.prerequisites.length > 0 && (
+                          <p className="text-xs text-red-600 ml-4">
+                            Prerequisites:{" "}
+                            {course.prerequisites
+                              .map(
+                                (p: any) => `${p.course_code} - ${p.course_title}`
+                              )
+                              .join(", ")}
+                          </p>
+                        )}
+                    </div>
                   ))}
                 </div>
               </div>

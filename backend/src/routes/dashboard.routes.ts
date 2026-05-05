@@ -11,6 +11,19 @@ const query = (sql: string, params: any[] = []): Promise<any> =>
     ),
   );
 
+const columnExists = async (
+  tableName: string,
+  columnName: string,
+): Promise<boolean> => {
+  const rows = await query(
+    `SELECT COUNT(*) AS cnt
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [tableName, columnName],
+  );
+  return Number(rows?.[0]?.cnt || 0) > 0;
+};
+
 // GET /api/dashboard/student
 router.get(
   "/student",
@@ -116,16 +129,26 @@ router.get(
         planNames: [],
       };
       try {
-        const planRes = await query(
-          `SELECT s.enrollment_year, sp.plan_id, sp.plan_name
-         FROM students s
-         LEFT JOIN study_plans sp
-           ON (sp.program_id = s.program_id)
-           OR (sp.program_id IS NULL AND (sp.department_id = s.department_id OR sp.department_id IS NULL))
-         WHERE s.student_id = ?
-         ORDER BY CASE WHEN sp.program_id = s.program_id THEN 0 ELSE 1 END`,
+        const studentInfoRows = await query(
+          `SELECT s.enrollment_year, s.department_id, s.program_id
+           FROM students s WHERE s.student_id = ?`,
           [student_id],
         );
+        const studentInfo = studentInfoRows[0];
+        console.log("[DASHBOARD-PLAN] Student: program_id=", studentInfo?.program_id, "department_id=", studentInfo?.department_id);
+
+        const planRes = await query(
+          `SELECT s.enrollment_year, s.department_id, s.program_id,
+                  sp.plan_id, sp.plan_name, sp.department_id AS plan_dept, sp.program_id AS plan_prog
+           FROM students s
+           LEFT JOIN study_plans sp
+             ON sp.program_id = s.program_id
+             OR (sp.program_id IS NULL AND sp.department_id = s.department_id)
+             OR (sp.program_id IS NULL AND sp.department_id IS NULL)
+           WHERE s.student_id = ?`,
+          [student_id],
+        );
+        console.log("[DASHBOARD-PLAN] Matching plans:", planRes);
 
         if (planRes.length > 0) {
           const enrollmentYear = Number(
@@ -136,19 +159,39 @@ router.get(
             .filter((v: number) => Number.isFinite(v) && v > 0);
           let items: any[] = [];
           if (planIds.length > 0) {
+            const hasIsFlexible = await columnExists(
+              "study_plan_courses",
+              "is_flexible",
+            );
             items = await query(
-              `SELECT spc.year_no, spc.semester_no, spc.course_bucket, c.course_code, c.course_title, c.credits
-             FROM study_plan_courses spc
-             JOIN courses c ON c.course_id = spc.course_id
-             WHERE spc.plan_id IN (${planIds.map(() => "?").join(",")})
-             ORDER BY spc.year_no, spc.semester_no, c.course_code`,
+              `SELECT spc.year_no, spc.semester_no, spc.course_bucket, spc.course_id,
+                      c.course_code, c.course_title, c.credits
+               ${hasIsFlexible ? ", spc.is_flexible" : ", 0 AS is_flexible"}
+               FROM study_plan_courses spc
+               JOIN courses c ON c.course_id = spc.course_id
+               WHERE spc.plan_id IN (${planIds.map(() => "?").join(",")})
+               ORDER BY spc.year_no, spc.semester_no, c.course_code`,
               planIds,
             );
+
+            // Fetch prerequisites for each course
+            for (const item of items) {
+              const prereqs = await query(
+                `SELECT c.course_code, c.course_title
+                 FROM prerequisites p
+                 JOIN courses c ON p.required_course_id = c.course_id
+                 WHERE p.course_id = ?`,
+                [item.course_id],
+              );
+              item.prerequisites = prereqs;
+            }
           }
 
           const grouped = new Map<string, any[]>();
           items.forEach((item: any) => {
-            const key = `${item.year_no}-${item.semester_no}`;
+            const key = item.is_flexible
+              ? `0-0`
+              : `${item.year_no}-${item.semester_no}`;
             const list = grouped.get(key) || [];
             list.push(item);
             grouped.set(key, list);
@@ -162,18 +205,22 @@ router.get(
               return {
                 yearNo,
                 semesterNo,
-                calendarYear: enrollmentYear + yearNo - 1,
+                calendarYear: yearNo === 0 ? null : enrollmentYear + yearNo - 1,
+                isFlexible: yearNo === 0 && semesterNo === 0,
                 courses: rows.map((row: any) => ({
                   code: row.course_code,
                   name: row.course_title,
                   credits: Number(row.credits || 0),
                   bucket: row.course_bucket || "major",
+                  prerequisites: row.prerequisites || [],
                 })),
               };
             }),
           };
         }
-      } catch {}
+      } catch (err: any) {
+        console.error("Study plan fetch error:", err.message);
+      }
       return res.json({
         success: true,
         data: {

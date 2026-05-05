@@ -13,6 +13,7 @@ import {
   FileText,
   GraduationCap,
   Users,
+  FileSpreadsheet,
 } from "lucide-react";
 
 export default function ProfessorDashboard() {
@@ -145,6 +146,8 @@ export default function ProfessorDashboard() {
                 { href: "/professor/attendance", label: "Attendance", icon: Calendar },
                 { href: "/professor/grades", label: "Gradebook", icon: GraduationCap },
                 { href: "/professor/assignments", label: "Assignments", icon: FileText },
+                                { href: "/professor/export", label: "Export Excel", icon: FileSpreadsheet },
+
                 { href: "/professor/cv", label: "My CV", icon: Users },
               ].map((action) => (
                 <Link key={action.href} href={action.href} className="rounded-[1.4rem] border border-[#eadcc6] bg-[#fff8ee] p-5 transition hover:-translate-y-1 hover:shadow-md">

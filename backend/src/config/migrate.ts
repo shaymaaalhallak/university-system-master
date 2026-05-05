@@ -369,6 +369,14 @@ export async function runMigrations() {
       );
       console.log("  Added study_plan_courses.course_bucket");
     }
+
+    if (!(await columnExists("study_plan_courses", "is_flexible"))) {
+      await query(
+        "ALTER TABLE `study_plan_courses` ADD COLUMN `is_flexible` tinyint(1) NOT NULL DEFAULT 0 AFTER `course_bucket`",
+      );
+      console.log("  Added study_plan_courses.is_flexible");
+    }
+
     console.log("Migrations complete");
   } catch (err: any) {
     console.error("Migration failed:", err.message);

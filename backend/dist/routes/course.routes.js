@@ -27,6 +27,13 @@ const isColumnNullable = async (tableName, columnName) => {
      LIMIT 1`, [tableName, columnName]);
     return String(rows?.[0]?.is_nullable || "YES").toUpperCase() === "YES";
 };
+const getExistingColumn = async (tableName, candidates) => {
+    for (const c of candidates) {
+        if (await columnExists(tableName, c))
+            return c;
+    }
+    return null;
+};
 // GET /api/courses — All authenticated users
 router.get("/", auth_1.verifyToken, async (req, res) => {
     try {
@@ -62,18 +69,25 @@ router.get("/", auth_1.verifyToken, async (req, res) => {
 router.get("/sections", auth_1.verifyToken, async (req, res) => {
     try {
         const { semester, year, courseId, professorId } = req.query;
+        const hasGradeEntryControl = await tableExists("grade_entry_control");
+        const gradeJoin = hasGradeEntryControl
+            ? "LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id"
+            : "";
+        const gradeEnabledExpr = hasGradeEntryControl
+            ? "gec.is_enabled AS grade_entry_enabled"
+            : "0 AS grade_entry_enabled";
         let sql = `
       SELECT cs.section_id, cs.course_id, cs.professor_id, cs.semester, cs.year,
              cs.room_number, cs.schedule_time,
              c.course_code, c.course_title, c.credits,
              u.first_name, u.last_name,
              (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled_count,
-             gec.is_enabled AS grade_entry_enabled
+             ${gradeEnabledExpr}
       FROM course_sections cs
       JOIN courses c ON cs.course_id = c.course_id
       JOIN professors p ON cs.professor_id = p.professor_id
       JOIN users u ON p.user_id = u.user_id
-      LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id
+      ${gradeJoin}
       WHERE 1=1
     `;
         const params = [];
@@ -110,7 +124,13 @@ router.get("/sections", auth_1.verifyToken, async (req, res) => {
                 columnExists("study_plans", "program_id"),
                 columnExists("study_plans", "department_id"),
             ]);
-            if (hasStudyPlans && hasStudyPlanCourses) {
+            const semesterColumn = hasStudyPlanCourses
+                ? await getExistingColumn("study_plan_courses", [
+                    "semester_no",
+                    "semester",
+                ])
+                : null;
+            if (hasStudyPlans && hasStudyPlanCourses && semesterColumn) {
                 const planScopeConditions = [];
                 const planScopeParams = [];
                 if (hasProgramColumn) {
@@ -129,7 +149,7 @@ router.get("/sections", auth_1.verifyToken, async (req, res) => {
                     const allowedRows = await query(`SELECT 1
              FROM study_plan_courses spc
              JOIN study_plans sp ON sp.plan_id = spc.plan_id
-             WHERE spc.semester_no = ?
+             WHERE spc.${semesterColumn} = ?
                AND (${planScopeConditions.join(" OR ")})
              LIMIT 1`, [Number(student.semester || 1), ...planScopeParams]);
                     if (allowedRows.length > 0) {
@@ -137,7 +157,7 @@ router.get("/sections", auth_1.verifyToken, async (req, res) => {
               SELECT DISTINCT spc.course_id
               FROM study_plan_courses spc
               JOIN study_plans sp ON sp.plan_id = spc.plan_id
-              WHERE spc.semester_no = ?
+              WHERE spc.${semesterColumn} = ?
                 AND (${planScopeConditions.join(" OR ")})
             )`;
                         params.push(Number(student.semester || 1), ...planScopeParams);
@@ -184,11 +204,12 @@ router.get("/study-plans/meta", auth_1.verifyToken, (0, auth_1.requireRole)("adm
 // GET /api/courses/study-plans — list study plans
 router.get("/study-plans", auth_1.verifyToken, (0, auth_1.requireRole)("admin"), async (_req, res) => {
     try {
-        const [hasDepartmentColumn, hasProgramColumn, hasPlanNameColumn, hasCreatedAtColumn,] = await Promise.all([
+        const [hasDepartmentColumn, hasProgramColumn, hasPlanNameColumn, hasCreatedAtColumn, hasStudyPlanCourses,] = await Promise.all([
             columnExists("study_plans", "department_id"),
             columnExists("study_plans", "program_id"),
             columnExists("study_plans", "plan_name"),
             columnExists("study_plans", "created_at"),
+            tableExists("study_plan_courses"),
         ]);
         const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
         const departmentExpr = hasDepartmentColumn ? "sp.department_id" : "NULL";
@@ -204,15 +225,20 @@ router.get("/study-plans", auth_1.verifyToken, (0, auth_1.requireRole)("admin"),
         const progJoin = hasProgramColumn
             ? "LEFT JOIN programs p ON sp.program_id = p.program_id"
             : "";
+        const coursesJoin = hasStudyPlanCourses
+            ? "LEFT JOIN study_plan_courses spc ON sp.plan_id = spc.plan_id"
+            : "";
+        const coursesCountExpr = hasStudyPlanCourses ? "COUNT(spc.id)" : "0";
         const rows = await query(`SELECT sp.plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${createdAtExpr} AS created_at,
               ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name,
-              COUNT(spc.id) AS courses_count
+              ${coursesCountExpr} AS courses_count
        FROM study_plans sp
-        ${deptJoin}
+       
+      ${deptJoin}
        ${progJoin}
-       LEFT JOIN study_plan_courses spc ON sp.plan_id = spc.plan_id
-      GROUP BY sp.plan_id, ${planNameExpr}, ${departmentExpr}, ${programExpr}, ${createdAtExpr}, ${departmentNameExpr}, ${programNameExpr}
-      ORDER BY sp.plan_name`);
+       ${coursesJoin}
+       GROUP BY sp.plan_id, ${planNameExpr}, ${departmentExpr}, ${programExpr}, ${createdAtExpr}, ${departmentNameExpr}, ${programNameExpr}
+       ORDER BY ${planNameExpr}`);
         return res.json({ success: true, data: rows });
     }
     catch (error) {
@@ -232,7 +258,7 @@ router.post("/study-plans", auth_1.verifyToken, (0, auth_1.requireRole)("admin")
             await query(`
           CREATE TABLE \`study_plans\` (
             \`plan_id\` int(11) NOT NULL AUTO_INCREMENT,
-            \`name\` varchar(150) NOT NULL,
+            \`plan_name\` varchar(150) NOT NULL,
             \`department_id\` int(11) DEFAULT NULL,
             \`program_id\` int(11) DEFAULT NULL,
             \`created_at\` timestamp DEFAULT current_timestamp(),
@@ -361,6 +387,8 @@ router.get("/study-plans/:id", auth_1.verifyToken, (0, auth_1.requireRole)("admi
             columnExists("study_plans", "plan_name"),
         ]);
         const planNameExpr = hasPlanNameColumn ? "sp.plan_name" : "sp.name";
+        const planIdColumn = (await getExistingColumn("study_plans", ["plan_id", "id"])) ||
+            "plan_id";
         const departmentExpr = hasDepartmentColumn ? "sp.department_id" : "NULL";
         const programExpr = hasProgramColumn ? "sp.program_id" : "NULL";
         const departmentNameExpr = hasDepartmentColumn
@@ -373,24 +401,47 @@ router.get("/study-plans/:id", auth_1.verifyToken, (0, auth_1.requireRole)("admi
         const progJoin = hasProgramColumn
             ? "LEFT JOIN programs p ON sp.program_id = p.program_id"
             : "";
-        const planRows = await query(`SELECT sp.plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name
+        const planRows = await query(`SELECT sp.${planIdColumn} AS plan_id, ${planNameExpr} AS plan_name, ${departmentExpr} AS department_id, ${programExpr} AS program_id, ${departmentNameExpr} AS department_name, ${programNameExpr} AS program_name
        FROM study_plans sp
         ${deptJoin}
        ${progJoin}
-       WHERE sp.plan_id = ?`, [req.params.id]);
+       WHERE sp.${planIdColumn} = ?`, [req.params.id]);
         if (!planRows.length)
             return res
                 .status(404)
                 .json({ success: false, message: "Plan not found" });
-        const items = await query(`SELECT spc.id, spc.course_id, spc.year_no, spc.semester_no, spc.is_required, spc.course_bucket,
-         c.course_code, c.course_title, c.credits
-       FROM study_plan_courses spc
-       JOIN courses c ON spc.course_id = c.course_id
-       WHERE spc.plan_id = ?
-       ORDER BY spc.year_no ASC, spc.semester_no ASC, c.course_code ASC`, [req.params.id]);
+        let items = [];
+        if (await tableExists("study_plan_courses")) {
+            const spcPlanIdColumn = await getExistingColumn("study_plan_courses", [
+                "plan_id",
+                "study_plan_id",
+            ]);
+            const yearColumn = await getExistingColumn("study_plan_courses", [
+                "year_no",
+                "year",
+            ]);
+            const semesterColumn = await getExistingColumn("study_plan_courses", [
+                "semester_no",
+                "semester",
+            ]);
+            if (!spcPlanIdColumn || !yearColumn || !semesterColumn) {
+                return res.json({
+                    success: true,
+                    data: { ...planRows[0], items: [] },
+                });
+            }
+            const hasCourseBucket = await columnExists("study_plan_courses", "course_bucket");
+            items = await query(`SELECT spc.id, spc.course_id, spc.${yearColumn} AS year_no, spc.${semesterColumn} AS semester_no, spc.is_required, ${hasCourseBucket ? "spc.course_bucket" : "'major' AS course_bucket"},
+                c.course_code, c.course_title, c.credits
+         FROM study_plan_courses spc
+         JOIN courses c ON spc.course_id = c.course_id
+         WHERE spc.${spcPlanIdColumn} = ?
+         ORDER BY spc.${yearColumn} ASC, spc.${semesterColumn} ASC, c.course_code ASC`, [req.params.id]);
+        }
         return res.json({ success: true, data: { ...planRows[0], items } });
     }
     catch (error) {
+        console.error("Study-plan details error:", error);
         return res.status(500).json({ success: false, message: "Server error" });
     }
 });
@@ -468,7 +519,7 @@ router.get("/study-plans/my-program", auth_1.verifyToken, (0, auth_1.requireRole
                 enrollmentYear: student.enrollment_year,
                 programName: student.program_name,
                 departmentName: student.department_name,
-                planNames: plans.map((p) => p.name),
+                planNames: plans.map((p) => p.plan_name),
                 semesters,
             },
         });
@@ -500,16 +551,49 @@ router.post("/study-plans/:id/courses", auth_1.verifyToken, (0, auth_1.requireRo
                 message: "courseId, yearNo and semesterNo are required",
             });
         }
-        await query(`INSERT INTO study_plan_courses (plan_id, course_id, year_no, semester_no, is_required, course_bucket)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE year_no = VALUES(year_no), semester_no = VALUES(semester_no), is_required = VALUES(is_required), course_bucket = VALUES(course_bucket)`, [
-            req.params.id,
-            courseId,
-            yearNo,
-            semesterNo,
-            isRequired === false ? 0 : 1,
-            String(req.body.courseBucket || "major"),
-        ]);
+        const planIdColumn = (await getExistingColumn("study_plan_courses", [
+            "plan_id",
+            "study_plan_id",
+        ])) || "plan_id";
+        const yearColumn = (await getExistingColumn("study_plan_courses", ["year_no", "year"])) ||
+            "year_no";
+        const semesterColumn = (await getExistingColumn("study_plan_courses", [
+            "semester_no",
+            "semester",
+        ])) || "semester_no";
+        const hasIsRequired = await columnExists("study_plan_courses", "is_required");
+        const hasCourseBucket = await columnExists("study_plan_courses", "course_bucket");
+        const existing = await query(`SELECT id FROM study_plan_courses WHERE ${planIdColumn} = ? AND course_id = ? LIMIT 1`, [req.params.id, courseId]);
+        if (existing.length) {
+            const sets = [`${yearColumn} = ?`, `${semesterColumn} = ?`];
+            const params = [yearNo, semesterNo];
+            if (hasIsRequired) {
+                sets.push("is_required = ?");
+                params.push(isRequired === false ? 0 : 1);
+            }
+            if (hasCourseBucket) {
+                sets.push("course_bucket = ?");
+                params.push(String(req.body.courseBucket || "major"));
+            }
+            params.push(req.params.id, courseId);
+            await query(`UPDATE study_plan_courses SET ${sets.join(", ")} WHERE ${planIdColumn} = ? AND course_id = ?`, params);
+        }
+        else {
+            const cols = [planIdColumn, "course_id", yearColumn, semesterColumn];
+            const qs = ["?", "?", "?", "?"];
+            const params = [req.params.id, courseId, yearNo, semesterNo];
+            if (hasIsRequired) {
+                cols.push("is_required");
+                qs.push("?");
+                params.push(isRequired === false ? 0 : 1);
+            }
+            if (hasCourseBucket) {
+                cols.push("course_bucket");
+                qs.push("?");
+                params.push(String(req.body.courseBucket || "major"));
+            }
+            await query(`INSERT INTO study_plan_courses (${cols.join(", ")}) VALUES (${qs.join(", ")})`, params);
+        }
         return res
             .status(201)
             .json({ success: true, message: "Course added to study plan" });
@@ -526,7 +610,7 @@ router.put("/study-plans/:id/courses/:courseId", auth_1.verifyToken, (0, auth_1.
             yearNo,
             semesterNo,
             isRequired === false ? 0 : 1,
-            String(req.body.courseBucket || "major"),
+            String(courseBucket || "major"),
             req.params.id,
             req.params.courseId,
         ]);
@@ -558,7 +642,7 @@ router.get("/:id/study-plans", auth_1.verifyToken, (0, auth_1.requireRole)("admi
        FROM study_plan_courses spc
        JOIN study_plans sp ON spc.plan_id = sp.plan_id
        WHERE spc.course_id = ?
-       ORDER BY  ${planNameExpr}, spc.year_no, spc.semester_no`, [req.params.id]);
+         ORDER BY ${planNameExpr}, spc.year_no, spc.semester_no`, [req.params.id]);
         return res.json({ success: true, data: rows });
     }
     catch (error) {
