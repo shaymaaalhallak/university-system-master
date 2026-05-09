@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
-
+import DashboardLayout from "@/components/DashboardLayout";
 type ApiResponse<T> = { success: boolean; data: T; message?: string };
 
 type StudentDetailResponse = {
@@ -134,249 +134,264 @@ export default function StudentDetailsPage() {
   const p = data.profile;
 
   return (
-    <div className="space-y-4 bg-[#FCFBF8] text-black p-3 rounded-xl">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Student Details Page
-          </h1>
-          <p className="text-gray-500">
-            {p.first_name} {p.last_name}
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Link
-            href={`/admin/students/${id}/edit`}
-            className="px-3 py-2 rounded-lg border"
-          >
-            Edit Student
-          </Link>
-          <Link
-            href="/admin/students"
-            className="px-3 py-2 rounded-lg text-black"
-          >
-            Back to list
-          </Link>
-        </div>
-      </div>
-
-      <div className="bg-[#FCFBF8] rounded-xl border border-[#E7E2D9] p-3 flex gap-2 overflow-x-auto">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-2 rounded-lg whitespace-nowrap border border-black ${t === tab ? "bg-gray-200 text-black" : "bg-white text-black"}`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      <div className="bg-[#FCFBF8] border border-[#E7E2D9] rounded-xl p-5">
-        {tab === "Profile" && (
-          <div className="space-y-2 text-sm">
-            <Row k="Name" v={`${p.first_name} ${p.last_name}`} />
-            <Row k="Email" v={p.email} />
-            <Row k="Phone" v={p.phone || "-"} />
-            <Row k="Department" v={p.department_name || "-"} />
-            <Row k="Program" v={p.program_name || "-"} />
-            <Row k="Semester" v={String(p.semester ?? "-")} />
-            <Row k="GPA" v={String(p.gpa ?? "-")} />
-            <Row k="Status" v={p.status} />
-            <div className="pt-4 flex gap-2">
-              <Link
-                className="border border-[#DED7CB] bg-white rounded-lg px-3 py-2 hover:bg-[#F2EBDD]"
-                href={`/admin/students/${id}/edit`}
-              >
-                Edit
-              </Link>
-              <button
-                className="bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
-                onClick={resetPassword}
-              >
-                Reset password
-              </button>
-            </div>
+    <DashboardLayout>
+      <div className="space-y-4 bg-[#FCFBF8] text-black p-3 rounded-xl">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Student Details Page
+            </h1>
+            <p className="text-gray-500">
+              {p.first_name} {p.last_name}
+            </p>
           </div>
-        )}
+          <div className="flex gap-3">
+            <Link
+              href={`/admin/students/${id}/edit`}
+              className="px-3 py-2 rounded-lg border"
+            >
+              Edit Student
+            </Link>
+            <Link
+              href="/admin/students"
+              className="px-3 py-2 rounded-lg text-black"
+            >
+              Back to list
+            </Link>
+          </div>
+        </div>
 
-        {tab === "Enrollments" && (
-          <SimpleTable
-            headers={["Course", "Semester", "Status", "Action"]}
-            rows={(data.enrollments || []).map((e) => [
-              `${e.course_code || ""} ${e.course_title || ""}`,
-              `${e.section_semester || ""} ${e.year || ""}`,
-              e.status,
-              <button
-                key={e.enrollment_id}
-                onClick={() =>
-                  api
-                    .post(`/users/students/${id}/drop`, {
-                      enrollmentId: e.enrollment_id,
-                    })
-                    .then(load)
-                }
-                className="text-black"
-              >
-                Drop course
-              </button>,
-            ])}
-            footer={
-              <button
-                className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
-                onClick={async () => {
-                  const sectionId = prompt("Section ID to enroll");
-                  if (!sectionId) return;
-                  await api.post(`/users/students/${id}/enroll`, { sectionId });
-                  await load();
-                }}
-              >
-                Enroll in new course
-              </button>
-            }
-          />
-        )}
+        <div className="bg-[#FCFBF8] rounded-xl border border-[#E7E2D9] p-3 flex gap-2 overflow-x-auto">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-2 rounded-lg whitespace-nowrap border border-black ${t === tab ? "bg-gray-200 text-black" : "bg-white text-black"}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
 
-        {tab === "Grades & GPA" && (
-          <SimpleTable
-            headers={["Course", "Assignment", "Mid", "Final", "Total", "Grade"]}
-            rows={(data.grades || []).map((g) => [
-              `${g.course_code || ""} ${g.course_title || ""}`,
-              g.assignment_score,
-              g.midterm_score,
-              g.final_score,
-              g.total_score,
-              g.letter_grade,
-            ])}
-            footer={
-              <a
-                href="/student/grades"
-                className="inline-block mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
-              >
-                Open GPA Calculator
-              </a>
-            }
-          />
-        )}
-
-        {tab === "Attendance" && (
-          <SimpleTable
-            headers={["Course ID", "Date", "Status"]}
-            rows={(data.attendance || []).map((a) => [
-              a.course_id,
-              new Date(a.date).toLocaleDateString(),
-              a.status,
-            ])}
-            footer={
-              <p className="mt-3 font-semibold">
-                Attendance %: {attendancePercent}%
-              </p>
-            }
-          />
-        )}
-
-        {tab === "Payments" && (
-          <SimpleTable
-            headers={["Date", "Amount", "Type", "Status", "Action"]}
-            rows={(data.payments || []).map((pmt) => [
-              pmt.payment_date
-                ? new Date(pmt.payment_date).toLocaleDateString()
-                : "-",
-              `$${pmt.amount}`,
-              pmt.payment_type,
-              pmt.status,
-              pmt.status === "pending" ? (
-                <button
-                  key={pmt.payment_id}
-                  className="text-black"
-                  onClick={() => markPaid(pmt.payment_id)}
+        <div className="bg-[#FCFBF8] border border-[#E7E2D9] rounded-xl p-5">
+          {tab === "Profile" && (
+            <div className="space-y-2 text-sm">
+              <Row k="Name" v={`${p.first_name} ${p.last_name}`} />
+              <Row k="Email" v={p.email} />
+              <Row k="Phone" v={p.phone || "-"} />
+              <Row k="Department" v={p.department_name || "-"} />
+              <Row k="Program" v={p.program_name || "-"} />
+              <Row k="Semester" v={String(p.semester ?? "-")} />
+              <Row k="GPA" v={String(p.gpa ?? "-")} />
+              <Row k="Status" v={p.status} />
+              <div className="pt-4 flex gap-2">
+                <Link
+                  className="border border-[#DED7CB] bg-white rounded-lg px-3 py-2 hover:bg-[#F2EBDD]"
+                  href={`/admin/students/${id}/edit`}
                 >
-                  Mark as paid
-                </button>
-              ) : (
-                "-"
-              ),
-            ])}
-            footer={
-              <button
-                onClick={addPayment}
-                className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
-              >
-                Add payment
-              </button>
-            }
-          />
-        )}
-
-        {tab === "Exams & Requests" && (
-          <SimpleTable
-            headers={["Request", "Status", "Admin Note", "Actions"]}
-            rows={(data.examRequests || []).map((r) => [
-              r.reason,
-              r.status,
-              r.admin_note || "-",
-              <div key={r.exemption_id} className="flex gap-2">
+                  Edit
+                </Link>
                 <button
-                  className="text-black"
-                  onClick={() => updateExamRequest(r.exemption_id, "approved")}
+                  className="bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+                  onClick={resetPassword}
                 >
-                  Approve
+                  Reset password
                 </button>
+              </div>
+            </div>
+          )}
+
+          {tab === "Enrollments" && (
+            <SimpleTable
+              headers={["Course", "Semester", "Status", "Action"]}
+              rows={(data.enrollments || []).map((e) => [
+                `${e.course_code || ""} ${e.course_title || ""}`,
+                `${e.section_semester || ""} ${e.year || ""}`,
+                e.status,
                 <button
+                  key={e.enrollment_id}
+                  onClick={() =>
+                    api
+                      .post(`/users/students/${id}/drop`, {
+                        enrollmentId: e.enrollment_id,
+                      })
+                      .then(load)
+                  }
                   className="text-black"
-                  onClick={() => updateExamRequest(r.exemption_id, "rejected")}
                 >
-                  Reject
+                  Drop course
+                </button>,
+              ])}
+              footer={
+                <button
+                  className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+                  onClick={async () => {
+                    const sectionId = prompt("Section ID to enroll");
+                    if (!sectionId) return;
+                    await api.post(`/users/students/${id}/enroll`, {
+                      sectionId,
+                    });
+                    await load();
+                  }}
+                >
+                  Enroll in new course
                 </button>
-              </div>,
-            ])}
-          />
-        )}
+              }
+            />
+          )}
 
-        {tab === "Library" && (
-          <SimpleTable
-            headers={["Book ID", "Borrow Date", "Return Status"]}
-            rows={(data.library || []).map((r) => [
-              r.book_id,
-              r.borrow_date
-                ? new Date(r.borrow_date).toLocaleDateString()
-                : "-",
-              r.status || (r.return_date ? "returned" : "borrowed"),
-            ])}
-          />
-        )}
+          {tab === "Grades & GPA" && (
+            <SimpleTable
+              headers={[
+                "Course",
+                "Assignment",
+                "Mid",
+                "Final",
+                "Total",
+                "Grade",
+              ]}
+              rows={(data.grades || []).map((g) => [
+                `${g.course_code || ""} ${g.course_title || ""}`,
+                g.assignment_score,
+                g.midterm_score,
+                g.final_score,
+                g.total_score,
+                g.letter_grade,
+              ])}
+              footer={
+                <a
+                  href="/student/grades"
+                  className="inline-block mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+                >
+                  Open GPA Calculator
+                </a>
+              }
+            />
+          )}
 
-        {tab === "Notifications" && (
-          <SimpleTable
-            headers={["Title", "Message", "Time"]}
-            rows={(data.notifications || []).map((n) => [
-              n.title,
-              n.message,
-              new Date(n.created_at).toLocaleString(),
-            ])}
-            footer={
-              <button
-                onClick={sendNotification}
-                className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
-              >
-                Send notification
-              </button>
-            }
-          />
-        )}
+          {tab === "Attendance" && (
+            <SimpleTable
+              headers={["Course ID", "Date", "Status"]}
+              rows={(data.attendance || []).map((a) => [
+                a.course_id,
+                new Date(a.date).toLocaleDateString(),
+                a.status,
+              ])}
+              footer={
+                <p className="mt-3 font-semibold">
+                  Attendance %: {attendancePercent}%
+                </p>
+              }
+            />
+          )}
 
-        {tab === "Activity Logs" && (
-          <SimpleTable
-            headers={["Action", "IP", "Time"]}
-            rows={(data.activityLogs || []).map((l) => [
-              l.action,
-              l.ip_address || "-",
-              new Date(l.created_at).toLocaleString(),
-            ])}
-          />
-        )}
+          {tab === "Payments" && (
+            <SimpleTable
+              headers={["Date", "Amount", "Type", "Status", "Action"]}
+              rows={(data.payments || []).map((pmt) => [
+                pmt.payment_date
+                  ? new Date(pmt.payment_date).toLocaleDateString()
+                  : "-",
+                `$${pmt.amount}`,
+                pmt.payment_type,
+                pmt.status,
+                pmt.status === "pending" ? (
+                  <button
+                    key={pmt.payment_id}
+                    className="text-black"
+                    onClick={() => markPaid(pmt.payment_id)}
+                  >
+                    Mark as paid
+                  </button>
+                ) : (
+                  "-"
+                ),
+              ])}
+              footer={
+                <button
+                  onClick={addPayment}
+                  className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+                >
+                  Add payment
+                </button>
+              }
+            />
+          )}
+
+          {tab === "Exams & Requests" && (
+            <SimpleTable
+              headers={["Request", "Status", "Admin Note", "Actions"]}
+              rows={(data.examRequests || []).map((r) => [
+                r.reason,
+                r.status,
+                r.admin_note || "-",
+                <div key={r.exemption_id} className="flex gap-2">
+                  <button
+                    className="text-black"
+                    onClick={() =>
+                      updateExamRequest(r.exemption_id, "approved")
+                    }
+                  >
+                    Approve
+                  </button>
+                  <button
+                    className="text-black"
+                    onClick={() =>
+                      updateExamRequest(r.exemption_id, "rejected")
+                    }
+                  >
+                    Reject
+                  </button>
+                </div>,
+              ])}
+            />
+          )}
+
+          {tab === "Library" && (
+            <SimpleTable
+              headers={["Book ID", "Borrow Date", "Return Status"]}
+              rows={(data.library || []).map((r) => [
+                r.book_id,
+                r.borrow_date
+                  ? new Date(r.borrow_date).toLocaleDateString()
+                  : "-",
+                r.status || (r.return_date ? "returned" : "borrowed"),
+              ])}
+            />
+          )}
+
+          {tab === "Notifications" && (
+            <SimpleTable
+              headers={["Title", "Message", "Time"]}
+              rows={(data.notifications || []).map((n) => [
+                n.title,
+                n.message,
+                new Date(n.created_at).toLocaleString(),
+              ])}
+              footer={
+                <button
+                  onClick={sendNotification}
+                  className="mt-3 bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
+                >
+                  Send notification
+                </button>
+              }
+            />
+          )}
+
+          {tab === "Activity Logs" && (
+            <SimpleTable
+              headers={["Action", "IP", "Time"]}
+              rows={(data.activityLogs || []).map((l) => [
+                l.action,
+                l.ip_address || "-",
+                new Date(l.created_at).toLocaleString(),
+              ])}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }
 
@@ -399,40 +414,42 @@ function SimpleTable({
   footer?: JSX.Element;
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead className="bg-[#F1EFEA]">
-          <tr>
-            {headers.map((h) => (
-              <th key={h} className="px-3 py-2 text-left">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="border-t">
-              {row.map((cell, j) => (
-                <td key={j} className="px-3 py-2">
-                  {cell}
-                </td>
+    <DashboardLayout>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-[#F1EFEA]">
+            <tr>
+              {headers.map((h) => (
+                <th key={h} className="px-3 py-2 text-left">
+                  {h}
+                </th>
               ))}
             </tr>
-          ))}
-          {!rows.length && (
-            <tr>
-              <td
-                colSpan={headers.length}
-                className="px-3 py-8 text-center text-gray-500"
-              >
-                No records
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-      {footer}
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="border-t">
+                {row.map((cell, j) => (
+                  <td key={j} className="px-3 py-2">
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr>
+                <td
+                  colSpan={headers.length}
+                  className="px-3 py-8 text-center text-gray-500"
+                >
+                  No records
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+        {footer}
+      </div>
+    </DashboardLayout>
   );
 }

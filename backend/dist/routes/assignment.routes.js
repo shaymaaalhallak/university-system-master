@@ -277,38 +277,37 @@ router.put("/:id", auth_1.verifyToken, (0, auth_1.requireRole)("professor", "adm
 // DELETE /api/assignments/:id
 router.delete("/:id", auth_1.verifyToken, (0, auth_1.requireRole)("professor", "admin"), async (req, res) => {
     try {
+        const assignmentRows = await query("SELECT section_id, attachment_url FROM assignments WHERE assignment_id = ?", [req.params.id]);
+        if (assignmentRows.length === 0) {
+            return res.status(404).json({ success: false, message: "Assignment not found" });
+        }
         if (req.user.role === "professor") {
-            const assignmentRows = await query("SELECT section_id, attachment_url FROM assignments WHERE assignment_id = ?", [req.params.id]);
-            if (assignmentRows.length === 0) {
-                return res.status(404).json({ success: false, message: "Assignment not found" });
-            }
             const ownsSection = await professorOwnsSection(req.user.id, assignmentRows[0].section_id);
             if (!ownsSection) {
                 return res.status(403).json({ success: false, message: "You do not teach this section" });
             }
-            deleteStoredFile(assignmentRows[0].attachment_url ?? null);
         }
-        else {
-            const assignmentRows = await query("SELECT attachment_url FROM assignments WHERE assignment_id = ?", [req.params.id]);
-            if (assignmentRows.length > 0) {
-                deleteStoredFile(assignmentRows[0].attachment_url ?? null);
-            }
-        }
+        deleteStoredFile(assignmentRows[0].attachment_url ?? null);
         await query("DELETE FROM assignments WHERE assignment_id = ?", [req.params.id]);
         return res.json({ success: true, message: "Assignment deleted" });
     }
     catch (error) {
-        console.error(error);
-        return res.status(500).json({ success: false, message: "Server error" });
+        console.error("Error deleting assignment:", error);
+        return res.status(500).json({ success: false, message: "Server error", error: String(error) });
     }
 });
 // POST /api/assignments/:id/submit — student submits
-router.post("/:id/submit", auth_1.verifyToken, (0, auth_1.requireRole)("student"), async (req, res) => {
+router.post("/:id/submit", auth_1.verifyToken, (0, auth_1.requireRole)("student"), upload.single("file"), async (req, res) => {
     try {
         const studentId = await getStudentId(req.user.id);
         if (!studentId)
             return res.status(404).json({ success: false, message: "Student profile not found" });
-        const { fileUrl } = req.body;
+        const fileUrl = req.body?.fileUrl;
+        const studentFile = req.file;
+        let storedPath = fileUrl || null;
+        if (studentFile) {
+            storedPath = toPublicUploadPath(studentFile.filename);
+        }
         const assignmentRows = await query(`SELECT a.assignment_id, a.section_id, a.due_date
        FROM assignments a
        JOIN enrollments e ON e.section_id = a.section_id AND e.student_id = ? AND e.status = 'active'
@@ -323,8 +322,8 @@ router.post("/:id/submit", auth_1.verifyToken, (0, auth_1.requireRole)("student"
         }
         const result = await query(`INSERT INTO assignment_submissions (assignment_id, student_id, submission_date, file_url)
        VALUES (?, ?, NOW(), ?)
-       ON DUPLICATE KEY UPDATE submission_date = NOW(), file_url = VALUES(file_url)`, [req.params.id, studentId, fileUrl || null]);
-        return res.json({ success: true, message: "Assignment submitted", data: { submissionId: result.insertId } });
+       ON DUPLICATE KEY UPDATE submission_date = NOW(), file_url = VALUES(file_url)`, [req.params.id, studentId, storedPath]);
+        return res.json({ success: true, message: "Assignment submitted", data: { submissionId: result.insertId, fileUrl: storedPath } });
     }
     catch (error) {
         console.error(error);

@@ -209,6 +209,41 @@ export async function runMigrations() {
       console.log("  Added grade_entry_control.final_weight");
     }
 
+    if (!(await columnExists("grade_entry_control", "opened_at"))) {
+      await query(
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `opened_at` datetime DEFAULT NULL AFTER `enabled_by`",
+      );
+      console.log("  Added grade_entry_control.opened_at");
+    }
+
+    if (!(await columnExists("grade_entry_control", "close_at"))) {
+      await query(
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `close_at` datetime DEFAULT NULL AFTER `opened_at`",
+      );
+      console.log("  Added grade_entry_control.close_at");
+    }
+
+    if (!(await columnExists("grade_entry_control", "entry_mode"))) {
+      await query(
+        "ALTER TABLE `grade_entry_control` ADD COLUMN `entry_mode` enum('exam','assignment') DEFAULT 'exam' AFTER `close_at`",
+      );
+      console.log("  Added grade_entry_control.entry_mode");
+    }
+
+    if (!(await columnExists("assignments", "created_by"))) {
+      await query(
+        "ALTER TABLE `assignments` ADD COLUMN `created_by` int(11) DEFAULT NULL AFTER `section_id`",
+      );
+      console.log("  Added assignments.created_by");
+    }
+
+    if (!(await columnExists("assignments", "course_id"))) {
+      await query(
+        "ALTER TABLE `assignments` ADD COLUMN `course_id` int(11) DEFAULT NULL AFTER `section_id`",
+      );
+      console.log("  Added assignments.course_id");
+    }
+
     if (!(await tableExists("grade_components"))) {
       await query(`
         CREATE TABLE \`grade_components\` (

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
-import { BookOpen, Calendar, Paperclip, Upload } from "lucide-react";
+import { BookOpen, Calendar, Paperclip, Upload, X } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 type Assignment = {
   id: number;
@@ -46,7 +46,7 @@ export default function StudentAssignmentsPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [fileUrls, setFileUrls] = useState<Record<number, string>>({});
+  const [filesMap, setFilesMap] = useState<Record<number, File | null>>({});
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -71,14 +71,6 @@ export default function StudentAssignmentsPage() {
         }
         const rows = response.data ?? [];
         setAssignments(rows);
-        setFileUrls(
-          Object.fromEntries(
-            rows.map((assignment) => [
-              assignment.id,
-              assignment.file_url ?? "",
-            ]),
-          ),
-        );
       } catch (err) {
         console.error(err);
         setError("Unable to load your assignments.");
@@ -96,27 +88,24 @@ export default function StudentAssignmentsPage() {
       setError(null);
       setMessage(null);
 
-      const response = await api.post<{ success: boolean; message: string }>(
+      const formData = new FormData();
+      const file = filesMap[assignmentId];
+      if (file) formData.append("file", file);
+
+      const response = await api.post<any>(
         `/assignments/${assignmentId}/submit`,
-        { fileUrl: fileUrls[assignmentId] },
+        formData,
       );
 
       if (!response.success) {
         throw new Error(response.message || "Failed to submit assignment");
       }
 
-      setAssignments((current) =>
-        current.map((assignment) =>
-          assignment.id === assignmentId
-            ? {
-                ...assignment,
-                submission_date: new Date().toISOString(),
-                file_url: fileUrls[assignmentId],
-              }
-            : assignment,
-        ),
-      );
+      // Re-fetch assignments to get accurate submission_id from server
+      const refresh = await api.get<{ success: boolean; data: Assignment[] }>("/assignments/my");
+      if (refresh.success) setAssignments(refresh.data ?? []);
       setMessage(response.message || "Assignment submitted.");
+      setFilesMap((prev) => ({ ...prev, [assignmentId]: null }));
     } catch (err) {
       console.error(err);
       setError(
@@ -172,7 +161,9 @@ export default function StudentAssignmentsPage() {
 
         <div className="space-y-4">
           {assignments.map((assignment) => {
-            const deadlinePassed = new Date() > new Date(assignment.due_date);
+            const due = new Date(assignment.due_date);
+            due.setHours(23, 59, 59, 999);
+            const deadlinePassed = new Date() > due;
 
             return (
               <div
@@ -192,7 +183,7 @@ export default function StudentAssignmentsPage() {
                     <div className="flex items-center gap-2 justify-end">
                       <Calendar size={14} />
                       <span>
-                        {new Date(assignment.due_date).toLocaleString()}
+                        {new Date(assignment.due_date).toLocaleDateString()}
                       </span>
                     </div>
                     <div>Max score: {assignment.max_score}</div>
@@ -235,17 +226,34 @@ export default function StudentAssignmentsPage() {
                     </span>
                   </div>
 
-                  <input
-                    value={fileUrls[assignment.id] ?? ""}
-                    onChange={(e) =>
-                      setFileUrls((current) => ({
-                        ...current,
-                        [assignment.id]: e.target.value,
-                      }))
-                    }
-                    placeholder="Paste your file URL"
-                    className="w-full rounded-lg border px-3 py-2"
-                  />
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+                        <Upload size={16} />
+                        Choose file
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.rar,.txt,image/*"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0] ?? null;
+                            setFilesMap((prev) => ({ ...prev, [assignment.id]: f }));
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                      {filesMap[assignment.id] && (
+                        <span className="text-sm text-gray-700">
+                          {filesMap[assignment.id]?.name}
+                          <button
+                            onClick={() => setFilesMap((prev) => ({ ...prev, [assignment.id]: null }))}
+                            className="ml-2 text-red-500 hover:text-red-700"
+                          >
+                            <X size={14} />
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
                   <div className="flex items-center gap-3">
                     <button
@@ -262,7 +270,7 @@ export default function StudentAssignmentsPage() {
 
                     {assignment.file_url && (
                       <a
-                        href={assignment.file_url}
+                        href={getAttachmentUrl(assignment.file_url) ?? "#"}
                         target="_blank"
                         rel="noreferrer"
                         className="text-sm text-blue-600 underline"

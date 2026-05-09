@@ -287,9 +287,11 @@ router.get("/section/:sectionId/setup", auth_1.verifyToken, (0, auth_1.requireRo
             }
         }
         const sectionRows = await query(`SELECT cs.section_id, cs.course_id, cs.semester, cs.year, cs.room_number, cs.schedule_time,
-              c.course_code, c.course_title
+              c.course_code, c.course_title,
+              gec.entry_mode, gec.close_at, gec.is_enabled
        FROM course_sections cs
        JOIN courses c ON cs.course_id = c.course_id
+       LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id
        WHERE cs.section_id = ?`, [sectionId]);
         if (sectionRows.length === 0) {
             return res
@@ -394,6 +396,10 @@ router.put("/section/:sectionId/setup", auth_1.verifyToken, (0, auth_1.requireRo
         }
         const savedComponents = await getSectionComponents(sectionId);
         await syncLegacyGradeControlFields(sectionId, req.user.id, savedComponents);
+        const entryMode = req.body.entry_mode;
+        if (entryMode === "exam" || entryMode === "assignment") {
+            await query("UPDATE grade_entry_control SET entry_mode = ? WHERE section_id = ?", [entryMode, sectionId]);
+        }
         return res.json({
             success: true,
             message: "Grade structure saved successfully",
@@ -491,13 +497,68 @@ router.post("/", auth_1.verifyToken, (0, auth_1.requireRole)("professor", "admin
                     .status(403)
                     .json({ success: false, message: "You do not teach this section" });
             }
-            const entryControlRows = await query("SELECT COALESCE(is_enabled, 0) AS is_enabled FROM grade_entry_control WHERE section_id = ? LIMIT 1", [sectionId]);
-            const isEnabled = Number(entryControlRows[0]?.is_enabled ?? 0) === 1;
-            if (!isEnabled) {
+            const entryControlRows = await query("SELECT is_enabled, close_at, entry_mode FROM grade_entry_control WHERE section_id = ? LIMIT 1", [sectionId]);
+            const row = entryControlRows[0];
+            if (!row || !row.is_enabled) {
                 return res.status(403).json({
                     success: false,
                     message: "Grade entry is closed for this section. Ask an admin to open it.",
                 });
+            }
+            // Check if entry has expired
+            if (row.close_at) {
+                const closeTime = new Date(row.close_at).getTime();
+                if (closeTime < Date.now()) {
+                    await query("UPDATE grade_entry_control SET is_enabled = 0 WHERE section_id = ?", [sectionId]);
+                    return res.status(403).json({
+                        success: false,
+                        message: "Grade entry has expired. Ask an admin to reopen it.",
+                    });
+                }
+            }
+            // Enforce entry mode: assignment mode blocks exam components, exam mode blocks assignment components
+            // Only blocks NEW entries for restricted types. Previously saved scores can be updated.
+            const entryMode = row.entry_mode || "exam";
+            const examKeywords = ["exam", "midterm", "final", "mid term", "final exam"];
+            const assignmentKeywords = ["assignment", "quiz", "homework", "project", "presentation", "lab", "report", "cw", "cc", "participation", "attendance"];
+            if (componentScores && Array.isArray(componentScores) && componentScores.length > 0) {
+                const componentIds = componentScores.map((cs) => cs.componentId);
+                const idPlaceholders = componentIds.map(() => "?").join(",");
+                const componentRows = await query(`SELECT component_id, component_name FROM grade_components WHERE component_id IN (${idPlaceholders})`, componentIds);
+                const compNameMap = new Map();
+                componentRows.forEach((r) => compNameMap.set(Number(r.component_id), r.component_name));
+                // Get previously saved scores for this student+section
+                const enrollment = await query("SELECT enrollment_id FROM enrollments WHERE student_id = ? AND section_id = ? AND status = 'active' LIMIT 1", [studentId, sectionId]);
+                const prevScores = new Map();
+                if (enrollment.length > 0) {
+                    const prevRows = await query(`SELECT gcs.component_id, gcs.score
+               FROM grade_component_scores gcs
+               JOIN grades g ON gcs.grade_id = g.grade_id
+               WHERE g.student_id = ? AND g.section_id = ?`, [studentId, sectionId]);
+                    prevRows.forEach((r) => prevScores.set(Number(r.component_id), Number(r.score)));
+                }
+                for (const cs of componentScores) {
+                    const newScore = Number(cs.score || 0);
+                    const prevScore = prevScores.get(Number(cs.componentId)) ?? 0;
+                    const isNewEntry = newScore !== prevScore;
+                    if (!isNewEntry)
+                        continue;
+                    const compName = (compNameMap.get(Number(cs.componentId)) || "").toLowerCase();
+                    const isExamComponent = examKeywords.some((kw) => compName.includes(kw));
+                    const isAssignmentComponent = assignmentKeywords.some((kw) => compName.includes(kw));
+                    if (entryMode === "assignment" && isExamComponent && newScore > 0) {
+                        return res.status(403).json({
+                            success: false,
+                            message: `Cannot enter exam grades ("${compNameMap.get(Number(cs.componentId))}") when grade entry is in assignment mode.`,
+                        });
+                    }
+                    if (entryMode === "exam" && isAssignmentComponent && newScore > 0) {
+                        return res.status(403).json({
+                            success: false,
+                            message: `Cannot enter assignment grades ("${compNameMap.get(Number(cs.componentId))}") when grade entry is in exam mode.`,
+                        });
+                    }
+                }
             }
         }
         const components = await getSectionComponents(sectionId);

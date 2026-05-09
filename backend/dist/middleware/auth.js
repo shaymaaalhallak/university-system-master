@@ -39,12 +39,15 @@ const verifyToken = async (req, res, next) => {
 };
 exports.verifyToken = verifyToken;
 const requireRole = (...roles) => (req, res, next) => {
+    console.log("[AUTH] requireRole check: user.role=", req.user?.role, "required=", roles);
     if (!req.user)
         return res
             .status(401)
             .json({ success: false, message: "Not authenticated" });
-    if (!roles.includes(req.user.role))
+    if (!roles.includes(req.user.role)) {
+        console.log("[AUTH] Access denied: role", req.user.role, "not in", roles);
         return res.status(403).json({ success: false, message: "Access denied" });
+    }
     next();
 };
 exports.requireRole = requireRole;

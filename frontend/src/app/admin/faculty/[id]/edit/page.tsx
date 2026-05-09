@@ -10,7 +10,7 @@ import {
   FacultyFormValues,
   FacultyMeta,
 } from "@/components/admin/faculty-types";
-
+import DashboardLayout from "@/components/DashboardLayout";
 type ApiResponse<T> = { success: boolean; data: T; message?: string };
 
 type ProfessorDetails = {
@@ -88,24 +88,26 @@ export default function EditFacultyPage() {
   };
 
   return (
-    <div className="space-y-4 bg-[#FCFBF8] text-black p-3 rounded-xl">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">
-          Edit Professor Page
-        </h1>
-        <Link href={`/admin/faculty/${id}`} className="text-black">
-          ← Back to details
-        </Link>
+    <DashboardLayout>
+      <div className="space-y-4 bg-[#FCFBF8] text-black p-3 rounded-xl">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-gray-900">
+            Edit Professor Page
+          </h1>
+          <Link href={`/admin/faculty/${id}`} className="text-black">
+            ← Back to details
+          </Link>
+        </div>
+        <FacultyForm
+          value={form}
+          meta={meta}
+          onChange={setForm}
+          onSubmit={save}
+          submitLabel="Update Professor"
+          includePassword={false}
+          loading={saving}
+        />
       </div>
-      <FacultyForm
-        value={form}
-        meta={meta}
-        onChange={setForm}
-        onSubmit={save}
-        submitLabel="Update Professor"
-        includePassword={false}
-        loading={saving}
-      />
-    </div>
+    </DashboardLayout>
   );
 }

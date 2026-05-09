@@ -10,7 +10,7 @@ import {
   StudentFormValues,
   StudentMeta,
 } from "@/components/admin/student-types";
-
+import DashboardLayout from "@/components/DashboardLayout";
 type ApiResponse<T> = { success: boolean; data: T; message?: string };
 
 type StudentDetail = {
@@ -96,28 +96,32 @@ export default function EditStudentPage() {
   };
 
   return (
-    <div className="space-y-4 bg-[#FCFBF8] text-black p-3 rounded-xl">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Edit Student Page</h1>
-        <Link href={`/admin/students/${params.id}`} className="text-black">
-          ← Back to details
-        </Link>
-      </div>
-      {error && (
-        <div className="p-3 rounded-lg border border-red-300 bg-red-50 text-red-700">
-          {error}
+    <DashboardLayout>
+      <div className="space-y-4 bg-[#FCFBF8] text-black p-3 rounded-xl">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-gray-900">
+            Edit Student Page
+          </h1>
+          <Link href={`/admin/students/${params.id}`} className="text-black">
+            ← Back to details
+          </Link>
         </div>
-      )}
+        {error && (
+          <div className="p-3 rounded-lg border border-red-300 bg-red-50 text-red-700">
+            {error}
+          </div>
+        )}
 
-      <StudentForm
-        value={form}
-        meta={meta}
-        onChange={setForm}
-        onSubmit={saveStudent}
-        submitLabel="Update Student"
-        includePassword={false}
-        loading={saving}
-      />
-    </div>
+        <StudentForm
+          value={form}
+          meta={meta}
+          onChange={setForm}
+          onSubmit={saveStudent}
+          submitLabel="Update Student"
+          includePassword={false}
+          loading={saving}
+        />
+      </div>
+    </DashboardLayout>
   );
 }

@@ -4,10 +4,36 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const multer_1 = __importDefault(require("multer"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
 const db_1 = __importDefault(require("../config/db"));
 const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
+const cvStorage = multer_1.default.diskStorage({
+    destination: (_req, _file, cb) => {
+        const dir = path_1.default.join(process.cwd(), "uploads", "cvs");
+        if (!fs_1.default.existsSync(dir))
+            fs_1.default.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+        const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        const ext = path_1.default.extname(file.originalname) || ".pdf";
+        cb(null, `cv-${unique}${ext}`);
+    },
+});
+const uploadCv = (0, multer_1.default)({
+    storage: cvStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+});
 const query = (sql, params = []) => new Promise((resolve, reject) => db_1.default.query(sql, params, (err, results) => (err ? reject(err) : resolve(results))));
+const tableExists = async (tableName) => {
+    const rows = await query(`SELECT COUNT(*) AS cnt
+     FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, [tableName]);
+    return Number(rows[0]?.cnt ?? 0) > 0;
+};
 const getProfessorId = async (userId) => {
     const rows = await query("SELECT professor_id FROM professors WHERE user_id = ?", [userId]);
     return rows.length > 0 ? rows[0].professor_id : null;
@@ -15,10 +41,18 @@ const getProfessorId = async (userId) => {
 // GET /api/professor/my-sections — Professor's own sections
 router.get("/my-sections", auth_1.verifyToken, (0, auth_1.requireRole)("professor"), async (req, res) => {
     try {
+        // Auto-close expired entries first
+        await query(`UPDATE grade_entry_control
+       SET is_enabled = 0
+       WHERE is_enabled = 1
+         AND close_at IS NOT NULL
+         AND close_at < NOW()`);
         const rows = await query(`SELECT cs.section_id, cs.course_id, cs.semester, cs.year, cs.room_number, cs.schedule_time,
               c.course_code, c.course_title, c.credits,
               (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled_count,
-              COALESCE(gec.is_enabled, 0) AS grade_entry_enabled
+              COALESCE(gec.is_enabled, 0) AS grade_entry_enabled,
+              gec.close_at,
+              gec.entry_mode
        FROM course_sections cs
        JOIN professors p ON cs.professor_id = p.professor_id
        JOIN courses c ON cs.course_id = c.course_id
@@ -47,8 +81,24 @@ router.get("/sections/:sectionId/students", auth_1.verifyToken, (0, auth_1.requi
                 return res.status(403).json({ success: false, message: "Access denied" });
             }
         }
+        const hasDepartmentsTable = await tableExists("departments");
+        const hasProgramsTable = await tableExists("programs");
+        const departmentSelect = hasDepartmentsTable
+            ? ", d.department_name"
+            : ", NULL AS department_name";
+        const departmentJoin = hasDepartmentsTable
+            ? "LEFT JOIN departments d ON s.department_id = d.department_id"
+            : "";
+        const programSelect = hasProgramsTable
+            ? ", pr.program_name"
+            : ", NULL AS program_name";
+        const programJoin = hasProgramsTable
+            ? "LEFT JOIN programs pr ON s.program_id = pr.program_id"
+            : "";
         const rows = await query(`SELECT u.user_id, u.first_name, u.last_name, u.email,
-              s.student_id, s.semester as student_semester, s.gpa,
+             s.student_id, s.semester as student_semester, s.gpa
+              ${departmentSelect}
+              ${programSelect},
               e.enrollment_id, e.enrolled_at, e.status AS enrollment_status,
               g.total_score, g.letter_grade,
               (SELECT SUM(a.status = 'Present') FROM attendance a WHERE a.student_id = s.student_id AND a.section_id = ?) AS present_count,
@@ -56,10 +106,18 @@ router.get("/sections/:sectionId/students", auth_1.verifyToken, (0, auth_1.requi
        FROM enrollments e
        JOIN students s ON e.student_id = s.student_id
        JOIN users u ON s.user_id = u.user_id
+        ${departmentJoin}
+       ${programJoin}
        LEFT JOIN grades g ON g.student_id = e.student_id AND g.section_id = e.section_id
        WHERE e.section_id = ? AND e.status = 'active'
        ORDER BY u.last_name`, [req.params.sectionId, req.params.sectionId, req.params.sectionId]);
-        return res.json({ success: true, data: rows });
+        return res.json({
+            success: true,
+            data: rows.map((row) => ({
+                ...row,
+                major: row.program_name || row.department_name || "Undeclared",
+            })),
+        });
     }
     catch (error) {
         console.error(error);
@@ -78,17 +136,24 @@ router.get("/cv", auth_1.verifyToken, (0, auth_1.requireRole)("professor"), asyn
         return res.status(500).json({ success: false, message: "Server error" });
     }
 });
-// PUT /api/professor/cv — Professor uploads/updates their CV URL
-// (In production, use multer for file upload; here we accept a URL)
-router.put("/cv", auth_1.verifyToken, (0, auth_1.requireRole)("professor"), async (req, res) => {
+// PUT /api/professor/cv — Professor uploads/updates their CV file
+router.put("/cv", auth_1.verifyToken, (0, auth_1.requireRole)("professor"), uploadCv.single("file"), async (req, res) => {
     try {
-        const { cvUrl } = req.body;
-        if (!cvUrl)
-            return res.status(400).json({ success: false, message: "cvUrl is required" });
-        await query("UPDATE professors SET cv_url = ? WHERE user_id = ?", [cvUrl, req.user.id]);
-        return res.json({ success: true, message: "CV updated successfully" });
+        if (!req.file)
+            return res.status(400).json({ success: false, message: "CV file is required" });
+        const cvPath = `/uploads/cvs/${req.file.filename}`;
+        // Delete old CV file if exists
+        const old = await query("SELECT cv_url FROM professors WHERE user_id = ?", [req.user.id]);
+        if (old.length > 0 && old[0].cv_url) {
+            const oldPath = path_1.default.join(process.cwd(), old[0].cv_url.replace(/^\/+/, ""));
+            if (fs_1.default.existsSync(oldPath))
+                fs_1.default.unlinkSync(oldPath);
+        }
+        await query("UPDATE professors SET cv_url = ? WHERE user_id = ?", [cvPath, req.user.id]);
+        return res.json({ success: true, message: "CV uploaded successfully", data: { cvUrl: cvPath } });
     }
     catch (error) {
+        console.error(error);
         return res.status(500).json({ success: false, message: "Server error" });
     }
 });

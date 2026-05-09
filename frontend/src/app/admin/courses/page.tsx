@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-
+import DashboardLayout from "@/components/DashboardLayout";
 type ApiResponse<T> = { success: boolean; data: T; message?: string };
 
 type Course = {
@@ -47,6 +47,7 @@ export default function ManageCoursesPage() {
   if (isLoading) return <div className="p-6">Loading...</div>;
 
   return (
+    <DashboardLayout>
     <div className="space-y-4 bg-[#FCFBF8] p-3 rounded-xl">
       <div className="flex items-center gap-2 border-b border-[#E7E2D9] pb-2">
         <button className="px-3 py-2 rounded-lg bg-[#7A263A] text-white">
@@ -145,5 +146,6 @@ export default function ManageCoursesPage() {
         </table>
       </div>
     </div>
+    </DashboardLayout>
   );
 }

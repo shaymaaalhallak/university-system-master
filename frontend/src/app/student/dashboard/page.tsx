@@ -12,6 +12,7 @@ import {
   DollarSign,
   Megaphone,
   TrendingUp,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -61,10 +62,41 @@ export default function StudentDashboard() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [enrolledCourses, setEnrolledCourses] = useState<any[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [droppingId, setDroppingId] = useState<number | null>(null);
+  const [dropMsg, setDropMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !user) router.push("/login");
   }, [user, isLoading, router]);
+
+  const loadEnrolledCourses = async () => {
+    try {
+      setLoadingCourses(true);
+      const res = await api.get<any>("/enrollments/my");
+      if (res.success) setEnrolledCourses(res.data ?? []);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  const handleDrop = async (enrollmentId: number) => {
+    if (!confirm("Are you sure you want to drop this course?")) return;
+    try {
+      setDroppingId(enrollmentId);
+      setDropMsg(null);
+      await api.delete(`/enrollments/${enrollmentId}`);
+      setDropMsg("Course dropped successfully.");
+      loadEnrolledCourses();
+    } catch {
+      setDropMsg("Failed to drop course.");
+    } finally {
+      setDroppingId(null);
+    }
+  };
 
   useEffect(() => {
     if (user?.role === "student") {
@@ -75,6 +107,7 @@ export default function StudentDashboard() {
         })
         .catch(console.error)
         .finally(() => setLoading(false));
+      loadEnrolledCourses();
     }
   }, [user]);
 
@@ -188,6 +221,38 @@ export default function StudentDashboard() {
           </div>
 
           <div className="space-y-8">
+            {dropMsg && (
+              <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{dropMsg}</p>
+            )}
+
+            <div className="rounded-[1.75rem] border border-[#e2d2bc] bg-white p-7 shadow-[0_22px_55px_rgba(73,36,22,0.08)]">
+              <h3 className="mb-5 text-2xl font-black text-[#4e1020]">Enrolled Courses</h3>
+              <div className="space-y-3">
+                {enrolledCourses.filter((e: any) => e.status === "active").length > 0 ? (
+                  enrolledCourses.filter((e: any) => e.status === "active").map((e: any) => (
+                    <div key={e.enrollment_id} className="flex items-center justify-between rounded-[1.4rem] border border-[#eadcc6] bg-[#fffaf3] p-4">
+                      <div>
+                        <p className="font-bold text-[#4e1020]">{e.course_code} - {e.course_title}</p>
+                        <p className="text-sm text-[#8a5a44]">{e.semester} {e.year} • Prof. {e.prof_first} {e.prof_last}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDrop(e.enrollment_id)}
+                        disabled={droppingId === e.enrollment_id}
+                        className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-60"
+                      >
+                        {droppingId === e.enrollment_id ? "..." : <Trash2 size={16} />}
+                      </button>
+                    </div>
+                  ))
+                ) : loadingCourses ? (
+                  <p className="py-4 text-center text-[#8a5a44]">Loading...</p>
+                ) : (
+                  <p className="py-4 text-center text-[#8a5a44]">No active enrollments.</p>
+                )}
+              </div>
+            </div>
+
             <div className="rounded-[1.75rem] border border-[#e2d2bc] bg-white p-7 shadow-[0_22px_55px_rgba(73,36,22,0.08)]">
               <div className="mb-5 flex items-center gap-3">
                 <AlertCircle className="text-[#7a1126]" size={22} />

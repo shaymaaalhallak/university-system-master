@@ -32,6 +32,17 @@ const columnExists = async (
   );
   return Number(rows?.[0]?.cnt || 0) > 0;
 };
+
+const getExistingColumn = async (
+  tableName: string,
+  candidates: string[],
+): Promise<string | null> => {
+  for (const col of candidates) {
+    if (await columnExists(tableName, col)) return col;
+  }
+  return null;
+};
+
 // Helper: get student_id from user_id
 const getStudentId = async (userId: number): Promise<number | null> => {
   const rows = await query(
@@ -182,69 +193,93 @@ router.post(
       ]);
       console.log("[ENROLL] Step 5: hasStudyPlans=", hasStudyPlans, "hasStudyPlanCourses=", hasStudyPlanCourses);
 
+      const semesterCol = hasStudyPlanCourses
+        ? await getExistingColumn("study_plan_courses", ["semester_no", "semester"])
+        : null;
+
+      // Build the set of allowed course IDs for this student
+      const allowedCourseIds = new Set<number>();
+      const isDirectCommonSet = new Set<number>();
+
       if (hasStudyPlans && hasStudyPlanCourses) {
-        // Build list of plan IDs the student qualifies for
-        const planIdConditions: string[] = [];
-        const planIdParams: any[] = [];
-
+        // 1. Program-specific plan courses
         if (hasProgramColumn && studentPlan.program_id) {
-          planIdConditions.push("program_id = ?");
-          planIdParams.push(Number(studentPlan.program_id));
-        }
-        if (hasDepartmentColumn && studentPlan.department_id) {
-          planIdConditions.push("(program_id IS NULL AND department_id = ?)");
-          planIdParams.push(Number(studentPlan.department_id));
-        }
-        // Universal common plans
-        planIdConditions.push("(program_id IS NULL AND department_id IS NULL)");
-
-        console.log("[ENROLL] Step 6: plan conditions=", planIdConditions.join(" OR "), "params=", planIdParams);
-
-        if (planIdConditions.length > 0) {
-          // Get all matching plan IDs
-          const matchingPlans = await query(
-            `SELECT plan_id FROM study_plans WHERE ${planIdConditions.join(" OR ")}`,
-            planIdParams,
+          const programPlans = await query(
+            `SELECT plan_id FROM study_plans WHERE program_id = ?`,
+            [Number(studentPlan.program_id)],
           );
-          console.log("[ENROLL] Step 7: matching plan IDs=", matchingPlans);
-
-          if (matchingPlans.length > 0) {
-            const planIds = matchingPlans.map((p: any) => p.plan_id);
-            const placeholders = planIds.map(() => "?").join(",");
-            const studentSemester = Number(studentPlan.semester || 1);
-
-            // Check if ANY course exists for this student's semester in their plans
-            const semesterHasCourses = await query(
-              `SELECT 1 FROM study_plan_courses WHERE semester_no = ? AND plan_id IN (${placeholders}) LIMIT 1`,
-              [studentSemester, ...planIds],
+          console.log("[ENROLL] Step 6: Program-specific plans:", programPlans);
+          if (programPlans.length > 0) {
+            const planIds = programPlans.map((p: any) => p.plan_id);
+            const ph = planIds.map(() => "?").join(",");
+            const progCourses = await query(
+              `SELECT DISTINCT course_id FROM study_plan_courses WHERE plan_id IN (${ph})`,
+              planIds,
             );
-            console.log("[ENROLL] Step 8: semester_has_courses=", semesterHasCourses.length > 0);
-
-            if (semesterHasCourses.length > 0) {
-              // Check if THIS specific course is in the plan for this semester
-              // OR if it's a flexible course (semester_no = 0)
-              const allowedRows = await query(
-                `SELECT 1, spc.semester_no FROM study_plan_courses spc
-                 WHERE spc.course_id = ? AND spc.plan_id IN (${placeholders})
-                 AND (spc.semester_no = ? OR spc.semester_no = 0)
-                 LIMIT 1`,
-                [section.course_id, ...planIds, studentSemester],
-              );
-              console.log("[ENROLL] Step 9: allowed_rows=", allowedRows.length > 0, allowedRows[0]);
-              if (!allowedRows.length) {
-                return res.status(400).json({
-                  success: false,
-                  message:
-                    "This course is not in your study plan for the current semester.",
-                });
-              }
-            }
+            progCourses.forEach((c: any) => allowedCourseIds.add(Number(c.course_id)));
           }
+        }
+
+        // 2. Department-common plan courses
+        if (hasDepartmentColumn && studentPlan.department_id) {
+          const deptPlans = await query(
+            `SELECT plan_id FROM study_plans WHERE program_id IS NULL AND department_id = ?`,
+            [Number(studentPlan.department_id)],
+          );
+          console.log("[ENROLL] Step 7: Department-common plans:", deptPlans);
+          if (deptPlans.length > 0) {
+            const planIds = deptPlans.map((p: any) => p.plan_id);
+            const ph = planIds.map(() => "?").join(",");
+            const deptCourses = await query(
+              `SELECT DISTINCT course_id FROM study_plan_courses WHERE plan_id IN (${ph})`,
+              planIds,
+            );
+            deptCourses.forEach((c: any) => allowedCourseIds.add(Number(c.course_id)));
+          }
+        }
+
+        // 3. Universal common plan courses
+        const universalPlans = await query(
+          `SELECT plan_id FROM study_plans WHERE program_id IS NULL AND department_id IS NULL`,
+          [],
+        );
+        console.log("[ENROLL] Step 8: Universal common plans:", universalPlans);
+        if (universalPlans.length > 0) {
+          const planIds = universalPlans.map((p: any) => p.plan_id);
+          const ph = planIds.map(() => "?").join(",");
+          const uniCourses = await query(
+            `SELECT DISTINCT course_id FROM study_plan_courses WHERE plan_id IN (${ph})`,
+            planIds,
+          );
+          uniCourses.forEach((c: any) => allowedCourseIds.add(Number(c.course_id)));
+        }
+
+        // 4. Direct common courses from courses table (department match, no program)
+        const directCommon = await query(
+          `SELECT course_id FROM courses WHERE department_id = ? AND program_id IS NULL`,
+          [Number(studentPlan.department_id)],
+        );
+        console.log("[ENROLL] Step 9: Direct common courses:", directCommon.length);
+        directCommon.forEach((c: any) => {
+          const cid = Number(c.course_id);
+          allowedCourseIds.add(cid);
+          isDirectCommonSet.add(cid);
+        });
+
+        console.log("[ENROLL] Step 10: Total allowed course IDs:", Array.from(allowedCourseIds));
+
+        // Validate the course is allowed
+        if (allowedCourseIds.size > 0 && !allowedCourseIds.has(section.course_id)) {
+          console.log("[ENROLL] Step 11: course_id", section.course_id, "NOT in allowed set");
+          return res.status(400).json({
+            success: false,
+            message: "This course is not available for your program or department.",
+          });
         }
       }
 
-      // Check already enrolled
-      console.log("[ENROLL] Step 10: checking duplicate enrollment");
+      // Check already enrolled in THIS section
+      console.log("[ENROLL] Step 14: checking duplicate enrollment");
       const existing = await query(
         "SELECT enrollment_id FROM enrollments WHERE student_id = ? AND section_id = ? AND status = 'active'",
         [studentId, sectionId],
@@ -253,6 +288,24 @@ router.post(
         return res.status(400).json({
           success: false,
           message: "Already enrolled in this section",
+        });
+      }
+
+      // Check already enrolled in SAME COURSE (different section/professor)
+      const existingCourse = await query(
+        `SELECT e.enrollment_id, cs.section_id, u.first_name, u.last_name
+         FROM enrollments e
+         JOIN course_sections cs ON e.section_id = cs.section_id
+         JOIN professors p ON cs.professor_id = p.professor_id
+         JOIN users u ON p.user_id = u.user_id
+         WHERE e.student_id = ? AND cs.course_id = ? AND e.status = 'active'`,
+        [studentId, section.course_id],
+      );
+      if (existingCourse.length > 0) {
+        const profName = `${existingCourse[0].first_name} ${existingCourse[0].last_name}`;
+        return res.status(400).json({
+          success: false,
+          message: `Already enrolled in this course with ${profName}. You can only enroll in one section per course.`,
         });
       }
 

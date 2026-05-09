@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
-
+import DashboardLayout from "@/components/DashboardLayout";
 type ApiResponse<T> = { success: boolean; data: T; message?: string };
 
 export default function StudyPlanDetailsPage() {
@@ -36,7 +36,8 @@ export default function StudyPlanDetailsPage() {
     const map: Record<string, any[]> = {};
     for (const item of plan?.items || []) {
       if (item.is_flexible) {
-        if (!map["Flexible (Any Semester)"]) map["Flexible (Any Semester)"] = [];
+        if (!map["Flexible (Any Semester)"])
+          map["Flexible (Any Semester)"] = [];
         map["Flexible (Any Semester)"].push(item);
       } else {
         const key = `Semester ${item.semester_no} (Year ${item.year_no})`;
@@ -57,6 +58,7 @@ export default function StudyPlanDetailsPage() {
   }
 
   return (
+    <DashboardLayout>
     <div className="space-y-4 bg-[#FCFBF8] p-3 rounded-xl">
       <div className="flex justify-between items-center">
         <div>
@@ -195,5 +197,6 @@ export default function StudyPlanDetailsPage() {
         </div>
       )}
     </div>
+    </DashboardLayout>
   );
 }

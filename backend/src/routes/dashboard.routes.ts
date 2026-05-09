@@ -24,6 +24,16 @@ const columnExists = async (
   return Number(rows?.[0]?.cnt || 0) > 0;
 };
 
+const getExistingColumn = async (
+  tableName: string,
+  candidates: string[],
+): Promise<string | null> => {
+  for (const col of candidates) {
+    if (await columnExists(tableName, col)) return col;
+  }
+  return null;
+};
+
 // GET /api/dashboard/student
 router.get(
   "/student",
@@ -98,7 +108,7 @@ router.get(
          JOIN courses c ON cs.course_id = c.course_id
          JOIN enrollments e ON e.section_id = a.section_id AND e.student_id = ? AND e.status = 'active'
          LEFT JOIN assignment_submissions sub ON sub.assignment_id = a.assignment_id AND sub.student_id = ?
-         WHERE a.due_date >= CURDATE() AND sub.submission_id IS NULL
+         WHERE sub.submission_id IS NULL
          ORDER BY a.due_date ASC LIMIT 5`,
           [student_id, student_id],
         );
@@ -163,14 +173,16 @@ router.get(
               "study_plan_courses",
               "is_flexible",
             );
+            const yearCol = await getExistingColumn("study_plan_courses", ["year_no", "year"]) || "year_no";
+            const semesterCol = await getExistingColumn("study_plan_courses", ["semester_no", "semester"]) || "semester_no";
             items = await query(
-              `SELECT spc.year_no, spc.semester_no, spc.course_bucket, spc.course_id,
+              `SELECT spc.${yearCol} AS year_no, spc.${semesterCol} AS semester_no, spc.course_bucket, spc.course_id,
                       c.course_code, c.course_title, c.credits
                ${hasIsFlexible ? ", spc.is_flexible" : ", 0 AS is_flexible"}
                FROM study_plan_courses spc
                JOIN courses c ON c.course_id = spc.course_id
                WHERE spc.plan_id IN (${planIds.map(() => "?").join(",")})
-               ORDER BY spc.year_no, spc.semester_no, c.course_code`,
+               ORDER BY spc.${yearCol}, spc.${semesterCol}, c.course_code`,
               planIds,
             );
 
@@ -269,6 +281,15 @@ router.get(
       // Sections teaching this year — enrolled count safe if enrollments missing
       let sections: any[] = [];
       try {
+        // Auto-close expired entries first
+        await query(
+          `UPDATE grade_entry_control
+           SET is_enabled = 0
+           WHERE is_enabled = 1
+             AND close_at IS NOT NULL
+             AND close_at < NOW()`,
+        );
+
         sections = await query(
           `SELECT cs.section_id, c.course_code, c.course_title,
                 cs.room_number, cs.schedule_time, cs.semester, cs.year,

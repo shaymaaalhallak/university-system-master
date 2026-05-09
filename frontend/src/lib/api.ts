@@ -364,6 +364,7 @@ export const professorApi = {
   getMyCv: () => api.get("/professor/cv"),
 
   updateMyCv: (data: { cvUrl: string }) => api.put("/professor/cv", data),
+  updateMyCvFile: (data: FormData) => api.put("/professor/cv", data),
 };
 
 export default api;

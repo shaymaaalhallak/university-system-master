@@ -1,8 +1,28 @@
 import { Router, Request, Response } from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import db from "../config/db";
 import { verifyToken, requireRole } from "../middleware/auth";
 
 const router = Router();
+
+const cvStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join(process.cwd(), "uploads", "cvs");
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname) || ".pdf";
+    cb(null, `cv-${unique}${ext}`);
+  },
+});
+const uploadCv = multer({
+  storage: cvStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 const query = (sql: string, params: any[] = []): Promise<any> =>
   new Promise((resolve, reject) =>
@@ -26,11 +46,22 @@ const getProfessorId = async (userId: number): Promise<number | null> => {
 // GET /api/professor/my-sections — Professor's own sections
 router.get("/my-sections", verifyToken, requireRole("professor"), async (req: Request, res: Response) => {
   try {
+    // Auto-close expired entries first
+    await query(
+      `UPDATE grade_entry_control
+       SET is_enabled = 0
+       WHERE is_enabled = 1
+         AND close_at IS NOT NULL
+         AND close_at < NOW()`,
+    );
+
     const rows = await query(
       `SELECT cs.section_id, cs.course_id, cs.semester, cs.year, cs.room_number, cs.schedule_time,
               c.course_code, c.course_title, c.credits,
               (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled_count,
-              COALESCE(gec.is_enabled, 0) AS grade_entry_enabled
+              COALESCE(gec.is_enabled, 0) AS grade_entry_enabled,
+              gec.close_at,
+              gec.entry_mode
        FROM course_sections cs
        JOIN professors p ON cs.professor_id = p.professor_id
        JOIN courses c ON cs.course_id = c.course_id
@@ -133,16 +164,23 @@ router.get("/cv", verifyToken, requireRole("professor"), async (req: Request, re
   }
 });
 
-// PUT /api/professor/cv — Professor uploads/updates their CV URL
-// (In production, use multer for file upload; here we accept a URL)
-router.put("/cv", verifyToken, requireRole("professor"), async (req: Request, res: Response) => {
+// PUT /api/professor/cv — Professor uploads/updates their CV file
+router.put("/cv", verifyToken, requireRole("professor"), uploadCv.single("file"), async (req: Request, res: Response) => {
   try {
-    const { cvUrl } = req.body;
-    if (!cvUrl) return res.status(400).json({ success: false, message: "cvUrl is required" });
+    if (!req.file) return res.status(400).json({ success: false, message: "CV file is required" });
+    const cvPath = `/uploads/cvs/${req.file.filename}`;
 
-    await query("UPDATE professors SET cv_url = ? WHERE user_id = ?", [cvUrl, req.user!.id]);
-    return res.json({ success: true, message: "CV updated successfully" });
+    // Delete old CV file if exists
+    const old = await query("SELECT cv_url FROM professors WHERE user_id = ?", [req.user!.id]);
+    if (old.length > 0 && old[0].cv_url) {
+      const oldPath = path.join(process.cwd(), old[0].cv_url.replace(/^\/+/, ""));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    await query("UPDATE professors SET cv_url = ? WHERE user_id = ?", [cvPath, req.user!.id]);
+    return res.json({ success: true, message: "CV uploaded successfully", data: { cvUrl: cvPath } });
   } catch (error) {
+    console.error(error);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });

@@ -999,6 +999,8 @@ router.get(
       }
 
       const professorId = (profile as any).professor_id;
+      console.log("[FACULTY-DETAILS] Resolved professor_id:", professorId, "for user_id:", id);
+
       const hasEligibilityTable = await tableExists(
         "professor_course_eligibility",
       );
@@ -1082,20 +1084,30 @@ ORDER BY cs.year DESC, cs.semester`,
         ),
         Promise.all([
           safeList(
-            `SELECT assignment_id, title, due_date, created_at
-           FROM assignments
-           WHERE created_by = ?
-           ORDER BY created_at DESC`,
-            [id],
-          ),
-          safeList(
-            `SELECT exam_id, exam_date, start_time, end_time, room, section_id
-           FROM exams
-           WHERE professor_id = ?
-           ORDER BY exam_date DESC`,
+            `SELECT a.assignment_id, a.title, a.description, a.due_date, a.created_at, a.max_score,
+                    a.attachment_url,
+                    c.course_code, c.course_title
+             FROM assignments a
+             JOIN course_sections cs ON a.section_id = cs.section_id
+             JOIN courses c ON cs.course_id = c.course_id
+             WHERE cs.professor_id = ?
+             ORDER BY a.due_date DESC`,
             [professorId],
           ),
-        ]).then(([assignments, exams]) => ({ assignments, exams })),
+          safeList(
+            `SELECT e.exam_id, e.exam_date, e.exam_type, e.max_marks, e.section_id,
+                    c.course_code, c.course_title
+             FROM exams e
+             JOIN course_sections cs ON e.section_id = cs.section_id
+             JOIN courses c ON cs.course_id = c.course_id
+             WHERE cs.professor_id = ?
+             ORDER BY e.exam_date DESC`,
+            [professorId],
+          ),
+        ]).then(([assignments, exams]) => {
+          console.log("[FACULTY-DETAILS] Assignments:", assignments.length, "Exams:", exams.length);
+          return { assignments, exams };
+        }),
         safeList(
           `SELECT cs.section_id, cs.schedule, cs.room, cs.semester, cs.year, c.course_code
          FROM course_sections cs
@@ -1153,6 +1165,151 @@ ORDER BY cs.year DESC, cs.semester`,
         },
       });
     } catch (error) {
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
+// GET /api/users/professors/:id/performance-details — Detailed pass rates per component per course
+router.get(
+  "/professors/:id/performance-details",
+  verifyToken,
+  requireRole("admin"),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.params.id;
+      const hasSectionsTable = await tableExists("course_sections");
+      if (!hasSectionsTable) {
+        return res.json({ success: true, data: [] });
+      }
+
+      // Resolve professor_id from user_id
+      const profRow = await safeList(
+        "SELECT professor_id FROM professors WHERE user_id = ?",
+        [userId],
+      );
+      if (profRow.length === 0) {
+        console.log("[PERF] No professor found for user_id", userId);
+        return res.json({ success: true, data: [] });
+      }
+      const professorId = profRow[0].professor_id;
+      console.log("[PERF] Resolved user_id", userId, "to professor_id", professorId);
+
+      const hasRoomColumn = await columnExists("course_sections", "room");
+      const hasRoomNumberColumn = await columnExists("course_sections", "room_number");
+      const roomCol = hasRoomNumberColumn ? "cs.room_number" : hasRoomColumn ? "cs.room" : "NULL";
+
+      const hasScheduleColumn = await columnExists("course_sections", "schedule");
+      const hasScheduleTimeColumn = await columnExists("course_sections", "schedule_time");
+      const scheduleCol = hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL";
+
+      const hasSectionNameColumn = await columnExists("course_sections", "section_name");
+      const sectionNameCol = hasSectionNameColumn ? "cs.section_name" : "CONCAT('S', cs.section_id)";
+
+      const sections = await safeList(
+        `SELECT cs.section_id, cs.course_id, cs.semester, cs.year, c.course_code, c.course_title,
+                ${sectionNameCol} AS section_name, ${roomCol} AS room, ${scheduleCol} AS schedule
+         FROM course_sections cs
+         JOIN courses c ON cs.course_id = c.course_id
+         WHERE cs.professor_id = ?
+         ORDER BY c.course_code, cs.semester`,
+        [professorId],
+      );
+
+      console.log("[PERF] Sections for professor", professorId, ":", sections.length);
+
+      const results: any[] = [];
+
+      for (const section of sections) {
+        const components = await safeList(
+          `SELECT component_id, component_name, weight, display_order
+           FROM grade_components
+           WHERE section_id = ?
+           ORDER BY display_order`,
+          [section.section_id],
+        );
+
+        console.log("[PERF] Section", section.section_id, "has", components.length, "components");
+
+        if (components.length === 0) {
+          results.push({
+            section_id: section.section_id,
+            course_code: section.course_code,
+            course_title: section.course_title,
+            section_name: section.section_name,
+            semester: section.semester,
+            year: section.year,
+            components: [],
+          });
+          continue;
+        }
+
+        const componentStats: any[] = [];
+
+        for (const comp of components) {
+          const scoreRows = await safeList(
+            `SELECT gcs.score
+             FROM grade_component_scores gcs
+             JOIN grade_components gc ON gcs.component_id = gc.component_id
+             JOIN grades g ON gcs.grade_id = g.grade_id
+             WHERE gc.section_id = ? AND g.section_id = ? AND gc.component_id = ?`,
+            [section.section_id, section.section_id, comp.component_id],
+          );
+
+          console.log("[PERF] Component", comp.component_name, "scores:", scoreRows.length);
+
+          if (scoreRows.length === 0) {
+            componentStats.push({
+              component_id: comp.component_id,
+              component_name: comp.component_name,
+              weight: comp.weight,
+              total_students: 0,
+              pass_count: 0,
+              fail_count: 0,
+              pass_rate: 0,
+              average_score: 0,
+              max_score: 0,
+              min_score: 0,
+            });
+            continue;
+          }
+
+          const maxPossible = (comp.weight / 100) * 100;
+          const passThreshold = maxPossible * 0.6;
+          const scores = scoreRows.map((r: any) => Number(r.score || 0));
+          const passCount = scores.filter((s: number) => s >= passThreshold).length;
+          const failCount = scores.length - passCount;
+          const avgScore = scores.reduce((a: number, b: number) => a + b, 0) / scores.length;
+
+          componentStats.push({
+            component_id: comp.component_id,
+            component_name: comp.component_name,
+            weight: comp.weight,
+            total_students: scores.length,
+            pass_count: passCount,
+            fail_count: failCount,
+            pass_rate: Math.round((passCount / scores.length) * 100),
+            average_score: Math.round(avgScore * 100) / 100,
+            max_score: Math.max(...scores),
+            min_score: Math.min(...scores),
+          });
+        }
+
+        results.push({
+          section_id: section.section_id,
+          course_code: section.course_code,
+          course_title: section.course_title,
+          section_name: section.section_name,
+          semester: section.semester,
+          year: section.year,
+          components: componentStats,
+        });
+      }
+
+      console.log("[PERF] Returning", results.length, "course results");
+      return res.json({ success: true, data: results });
+    } catch (error) {
+      console.error("Error fetching performance details:", error);
       return res.status(500).json({ success: false, message: "Server error" });
     }
   },

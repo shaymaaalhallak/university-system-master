@@ -7,7 +7,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
-import { BookOpen, Users, Clock, ChevronRight } from "lucide-react";
+import { BookOpen, Users, Clock, ChevronRight, Trash2 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 export default function StudentCourses() {
   const router = useRouter();
@@ -16,6 +16,7 @@ export default function StudentCourses() {
   const [myEnrollments, setMyEnrollments] = useState<any[]>([]);
   const [studyPlan, setStudyPlan] = useState<any>(null);
   const [enrolling, setEnrolling] = useState<number | null>(null);
+  const [dropping, setDropping] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState("");
@@ -28,41 +29,40 @@ export default function StudentCourses() {
     if (user?.role === "student") {
       setLoadingData(true);
       setError("");
-      let hadError = false;
       const loadSections = async () => {
         try {
+          console.log("[UI] Loading sections...");
           const res: any = await api.get("/courses/sections");
+          console.log("[UI] Sections response:", res.success ? "OK" : res.message, "count:", res.data?.length);
           if (res.success) setSections(res.data);
         } catch (e: any) {
-          console.error("Failed to load sections:", e);
-          hadError = true;
-          const msg = e?.response?.data?.message || "Failed to load course sections";
-          setError((prev) => prev ? prev : msg);
+          console.error("[UI] Sections error:", e.response?.status, e.response?.data);
+          const msg = e?.response?.data?.message || e.message || "Failed to load course sections";
+          setError((prev) => (prev ? prev : `Sections: ${msg}`));
         }
       };
       const loadEnrollments = async () => {
         try {
+          console.log("[UI] Loading enrollments...");
           const res: any = await api.get("/enrollments/my");
+          console.log("[UI] Enrollments response:", res.success ? "OK" : res.message, "count:", res.data?.length);
           if (res.success) setMyEnrollments(res.data);
         } catch (e: any) {
-          console.error("Failed to load enrollments:", e);
-          hadError = true;
-          if (!error) {
-            const msg = e?.response?.data?.message || "Failed to load enrollments";
-            setError(msg);
-          }
+          console.error("[UI] Enrollments error:", e.response?.status, e.response?.data);
+          const msg = e?.response?.data?.message || e.message || "Failed to load enrollments";
+          setError((prev) => (prev ? prev : `Enrollments: ${msg}`));
         }
       };
       const loadStudyPlan = async () => {
         try {
+          console.log("[UI] Loading study plan...");
           const res: any = await api.get("/courses/study-plans/my-program");
+          console.log("[UI] Study plan response:", res.success ? "OK" : res.message, "semesters:", res.data?.semesters?.length);
           if (res.success) setStudyPlan(res.data);
         } catch (e: any) {
-          console.error("Failed to load study plan:", e);
-          if (!error) {
-            const msg = e?.response?.data?.message || "Failed to load study plan";
-            setError(msg);
-          }
+          console.error("[UI] Study plan error:", e.response?.status, e.response?.data);
+          const msg = e?.response?.data?.message || e.message || "Failed to load study plan";
+          setError((prev) => (prev ? prev : `Study Plan: ${msg}`));
         }
       };
       Promise.all([loadSections(), loadEnrollments(), loadStudyPlan()])
@@ -88,6 +88,26 @@ export default function StudentCourses() {
     }
     return map;
   }, [studyPlan]);
+
+  const handleDrop = async (enrollmentId: number) => {
+    if (!confirm("Are you sure you want to drop this course?")) return;
+    setDropping(enrollmentId);
+    setMessage("");
+    try {
+      const res: any = await api.delete(`/enrollments/${enrollmentId}`);
+      if (res.success) {
+        setMessage("✓ Course dropped successfully.");
+        const updated: any = await api.get<any>("/enrollments/my");
+        if (updated.success) setMyEnrollments(updated.data);
+      } else {
+        setMessage(`✗ ${res.message}`);
+      }
+    } catch (e: any) {
+      setMessage(`✗ ${e?.response?.data?.message || "Drop failed"}`);
+    } finally {
+      setDropping(null);
+    }
+  };
 
   const handleEnroll = async (sectionId: number) => {
     setEnrolling(sectionId);
@@ -162,11 +182,22 @@ export default function StudentCourses() {
                   <p className="text-xs text-gray-400 mt-1">
                     {e.credits} credits · {e.semester} {e.year}
                   </p>
-                  {e.letter_grade && (
-                    <span className="mt-2 inline-block px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">
-                      Grade: {e.letter_grade}
-                    </span>
-                  )}
+                  <div className="mt-2 flex items-center gap-2">
+                    {e.letter_grade && (
+                      <span className="inline-block px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">
+                        Grade: {e.letter_grade}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDrop(e.enrollment_id)}
+                      disabled={dropping === e.enrollment_id}
+                      className="ml-auto rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-700 hover:bg-red-100 disabled:opacity-60"
+                      title="Drop course"
+                    >
+                      {dropping === e.enrollment_id ? "..." : <Trash2 size={14} />}
+                    </button>
+                  </div>
                 </div>
               ))}
             {!myEnrollments.filter((e) => e.status === "active").length && (

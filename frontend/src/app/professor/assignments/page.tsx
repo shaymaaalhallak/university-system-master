@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
-import { BookOpen, Calendar, ClipboardList, Paperclip, Save, Users } from "lucide-react";
+import { BookOpen, Calendar, ClipboardList, Paperclip, Save, Trash2, Users } from "lucide-react";
 
 type Section = {
   section_id: number;
@@ -73,6 +73,7 @@ export default function ProfessorAssignmentsPage() {
   const [loading, setLoading] = useState(true);
   const [loadingAssignments, setLoadingAssignments] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -229,6 +230,24 @@ export default function ProfessorAssignmentsPage() {
       setError("Unable to create the assignment.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteAssignment = async (assignmentId: number, title: string) => {
+    if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) return;
+    try {
+      setDeletingId(assignmentId);
+      setError(null);
+      const response = await api.delete<{ success: boolean; message: string }>(`/assignments/${assignmentId}`);
+      if (response.success) {
+        setMessage("Assignment deleted successfully.");
+        setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Unable to delete this assignment.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -419,12 +438,23 @@ export default function ProfessorAssignmentsPage() {
                       </a>
                     )}
                   </div>
-                  <div className="text-right text-sm text-gray-500">
-                    <div className="flex items-center gap-2 justify-end">
-                      <Calendar size={14} />
-                      <span>{new Date(assignment.due_date).toLocaleString()}</span>
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAssignment(assignment.id, assignment.title)}
+                      disabled={deletingId === assignment.id}
+                      className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-60"
+                      title="Delete assignment"
+                    >
+                      {deletingId === assignment.id ? "..." : <Trash2 size={16} />}
+                    </button>
+                    <div className="text-right text-sm text-gray-500">
+                      <div className="flex items-center gap-2 justify-end">
+                        <Calendar size={14} />
+                        <span>{new Date(assignment.due_date).toLocaleDateString()}</span>
+                      </div>
+                      <div>Max score: {assignment.max_score}</div>
                     </div>
-                    <div>Max score: {assignment.max_score}</div>
                   </div>
                 </div>
 

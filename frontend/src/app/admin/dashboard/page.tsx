@@ -96,7 +96,7 @@ export default function AdminDashboard() {
   const actions: Array<{
     href?: string;
     label: string;
-    icon: React.ComponentType<{ className?: string; size?: number }>;
+    icon: any;
     available: boolean;
   }> = [
     {
@@ -123,7 +123,13 @@ export default function AdminDashboard() {
       icon: BookOpen,
       available: true,
     },
-    { label: "Audit Logs", icon: Activity, available: false },
+    {
+      href: "/admin/grading-control",
+      label: "Grade Booking",
+      icon: Activity,
+      available: true,
+    },
+    { label: "Audit Logs", icon: ShieldAlert, available: false },
     { label: "Exemptions", icon: Building, available: false },
   ];
 
