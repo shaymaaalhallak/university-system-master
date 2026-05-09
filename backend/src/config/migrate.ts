@@ -412,6 +412,239 @@ export async function runMigrations() {
       console.log("  Added study_plan_courses.is_flexible");
     }
 
+    // ── program_fee_settings table ───────────────────────────────────────────
+    if (!(await tableExists("program_fee_settings"))) {
+      await query(`
+        CREATE TABLE \`program_fee_settings\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`program_id\` int(11) NOT NULL,
+          \`price_per_credit\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`effective_from\` date DEFAULT NULL,
+          \`effective_to\` date DEFAULT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`uniq_program\` (\`program_id\`),
+          CONSTRAINT \`pfs_program_fk\` FOREIGN KEY (\`program_id\`) REFERENCES \`programs\` (\`program_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created program_fee_settings table");
+    }
+
+    // ── student_invoices table ───────────────────────────────────────────────
+    if (!(await tableExists("student_invoices"))) {
+      await query(`
+        CREATE TABLE \`student_invoices\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`semester\` varchar(20) NOT NULL,
+          \`year\` int(11) NOT NULL,
+          \`total_credits\` int(11) NOT NULL DEFAULT 0,
+          \`price_per_credit\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`total_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`discount_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`penalty_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`final_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`paid_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`status\` enum('pending','paid','partial','overdue') DEFAULT 'pending',
+          \`generated_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          KEY \`inv_student\` (\`student_id\`),
+          KEY \`inv_semester\` (\`semester\`,\`year\`),
+          CONSTRAINT \`inv_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created student_invoices table");
+    }
+
+    // ── student_payments table ───────────────────────────────────────────────
+    if (!(await tableExists("student_payments"))) {
+      await query(`
+        CREATE TABLE \`student_payments\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`invoice_id\` int(11) NOT NULL,
+          \`student_id\` int(11) NOT NULL,
+          \`amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`payment_method\` varchar(50) DEFAULT NULL,
+          \`transaction_reference\` varchar(100) DEFAULT NULL,
+          \`payment_date\` datetime DEFAULT current_timestamp(),
+          \`status\` enum('pending','completed','failed') DEFAULT 'pending',
+          \`admin_notes\` text DEFAULT NULL,
+          PRIMARY KEY (\`id\`),
+          KEY \`pay_invoice\` (\`invoice_id\`),
+          KEY \`pay_student\` (\`student_id\`),
+          CONSTRAINT \`pay_invoice_fk\` FOREIGN KEY (\`invoice_id\`) REFERENCES \`student_invoices\` (\`id\`) ON DELETE CASCADE,
+          CONSTRAINT \`pay_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created student_payments table");
+    }
+
+    // ── student_discounts table ──────────────────────────────────────────────
+    if (!(await tableExists("student_discounts"))) {
+      await query(`
+        CREATE TABLE \`student_discounts\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`type\` varchar(50) NOT NULL,
+          \`value\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`reason\` text DEFAULT NULL,
+          \`semester\` varchar(20) NOT NULL,
+          \`year\` int(11) NOT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          KEY \`disc_student\` (\`student_id\`),
+          CONSTRAINT \`disc_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created student_discounts table");
+    }
+
+    // ── fee_penalties table ──────────────────────────────────────────────────
+    if (!(await tableExists("fee_penalties"))) {
+      await query(`
+        CREATE TABLE \`fee_penalties\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`reason\` varchar(255) DEFAULT NULL,
+          \`semester\` varchar(20) NOT NULL,
+          \`year\` int(11) NOT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          KEY \`pen_student\` (\`student_id\`),
+          CONSTRAINT \`pen_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created fee_penalties table");
+    }
+
+    // ── Fix fee tables that may have been created with wrong column names (e.g. setting_id vs id) ─
+    // Drop foreign keys first, then drop & recreate tables to get correct `id` column
+    const feeTables = ["student_payments", "student_invoices", "student_discounts", "fee_penalties", "program_fee_settings"];
+    for (const tbl of feeTables) {
+      if (await tableExists(tbl)) {
+        if (!(await columnExists(tbl, "id"))) {
+          console.log(`  Recreating ${tbl} (has wrong column name)...`);
+          try {
+            // Drop FK constraints that reference this table
+            const fkRows = await query(
+              `SELECT CONSTRAINT_NAME, TABLE_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+               WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME = ? AND CONSTRAINT_NAME != 'PRIMARY'`,
+              [tbl],
+            );
+            for (const fk of fkRows) {
+              try { await query(`ALTER TABLE \`${fk.TABLE_NAME}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``); } catch {}
+            }
+            // Drop FK constraints on this table
+            if (tbl !== "program_fee_settings" && tbl !== "student_invoices") {
+              // No cascade dependencies for these tables, safe to drop directly
+            }
+            await query(`DROP TABLE IF EXISTS \`${tbl}\``);
+          } catch (e2: any) {
+            console.log(`  Could not drop ${tbl}: ${e2.message} — skipping`);
+            continue;
+          }
+        }
+      }
+    }
+    // Recreate tables that were dropped
+    if (!(await tableExists("program_fee_settings"))) {
+      await query(`
+        CREATE TABLE \`program_fee_settings\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`program_id\` int(11) NOT NULL,
+          \`price_per_credit\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`effective_from\` date DEFAULT NULL,
+          \`effective_to\` date DEFAULT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          UNIQUE KEY \`uniq_program\` (\`program_id\`),
+          CONSTRAINT \`pfs_program_fk\` FOREIGN KEY (\`program_id\`) REFERENCES \`programs\` (\`program_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Recreated program_fee_settings table");
+    }
+    if (!(await tableExists("student_invoices"))) {
+      await query(`
+        CREATE TABLE \`student_invoices\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`semester\` varchar(20) NOT NULL,
+          \`year\` int(11) NOT NULL,
+          \`total_credits\` int(11) NOT NULL DEFAULT 0,
+          \`price_per_credit\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`total_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`discount_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`penalty_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`final_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`paid_amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`status\` enum('pending','paid','partial','overdue') DEFAULT 'pending',
+          \`generated_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          KEY \`inv_student\` (\`student_id\`),
+          KEY \`inv_semester\` (\`semester\`,\`year\`),
+          CONSTRAINT \`inv_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Recreated student_invoices table");
+    }
+    if (!(await tableExists("student_payments"))) {
+      await query(`
+        CREATE TABLE \`student_payments\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`invoice_id\` int(11) NOT NULL,
+          \`student_id\` int(11) NOT NULL,
+          \`amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`payment_method\` varchar(50) DEFAULT NULL,
+          \`transaction_reference\` varchar(100) DEFAULT NULL,
+          \`payment_date\` datetime DEFAULT current_timestamp(),
+          \`status\` enum('pending','completed','failed') DEFAULT 'pending',
+          \`admin_notes\` text DEFAULT NULL,
+          PRIMARY KEY (\`id\`),
+          KEY \`pay_invoice\` (\`invoice_id\`),
+          KEY \`pay_student\` (\`student_id\`),
+          CONSTRAINT \`pay_invoice_fk\` FOREIGN KEY (\`invoice_id\`) REFERENCES \`student_invoices\` (\`id\`) ON DELETE CASCADE,
+          CONSTRAINT \`pay_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Recreated student_payments table");
+    }
+    if (!(await tableExists("student_discounts"))) {
+      await query(`
+        CREATE TABLE \`student_discounts\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`type\` varchar(50) NOT NULL,
+          \`value\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`reason\` text DEFAULT NULL,
+          \`semester\` varchar(20) NOT NULL,
+          \`year\` int(11) NOT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          KEY \`disc_student\` (\`student_id\`),
+          CONSTRAINT \`disc_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Recreated student_discounts table");
+    }
+    if (!(await tableExists("fee_penalties"))) {
+      await query(`
+        CREATE TABLE \`fee_penalties\` (
+          \`id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`student_id\` int(11) NOT NULL,
+          \`amount\` decimal(10,2) NOT NULL DEFAULT 0.00,
+          \`reason\` varchar(255) DEFAULT NULL,
+          \`semester\` varchar(20) NOT NULL,
+          \`year\` int(11) NOT NULL,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`id\`),
+          KEY \`pen_student\` (\`student_id\`),
+          CONSTRAINT \`pen_student_fk\` FOREIGN KEY (\`student_id\`) REFERENCES \`students\` (\`student_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Recreated fee_penalties table");
+    }
+
     console.log("Migrations complete");
   } catch (err: any) {
     console.error("Migration failed:", err.message);

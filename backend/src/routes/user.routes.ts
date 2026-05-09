@@ -1612,6 +1612,22 @@ router.post(
 
 // ============================ GENERIC USERS ============================
 
+// GET /api/users/programs — List all programs
+router.get(
+  "/programs",
+  verifyToken,
+  async (_req: Request, res: Response) => {
+    try {
+      const rows = await query(
+        "SELECT program_id, program_name, department_id FROM programs ORDER BY program_name",
+      );
+      return res.json({ success: true, data: rows });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+);
+
 // GET /api/users/:id — Admin only
 router.get(
   "/:id",

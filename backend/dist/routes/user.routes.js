@@ -1082,6 +1082,16 @@ router.post("/professors/:id/email", auth_1.verifyToken, (0, auth_1.requireRole)
     }
 });
 // ============================ GENERIC USERS ============================
+// GET /api/users/programs — List all programs
+router.get("/programs", auth_1.verifyToken, async (_req, res) => {
+    try {
+        const rows = await query("SELECT program_id, program_name, department_id FROM programs ORDER BY program_name");
+        return res.json({ success: true, data: rows });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: "Server error" });
+    }
+});
 // GET /api/users/:id — Admin only
 router.get("/:id", auth_1.verifyToken, (0, auth_1.requireRole)("admin"), async (req, res) => {
     try {

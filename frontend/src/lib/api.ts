@@ -322,15 +322,50 @@ export const departmentsApi = {
 
 // Fees API
 export const feesApi = {
+  // Legacy
   getFees: (params?: { studentId?: string; status?: string }) =>
     api.get("/fees", { params }),
-
-  getMyFees: () => api.get("/fees/my"),
-
   payFee: (feeId: string, paymentMethod: string) =>
     api.post(`/fees/${feeId}/pay`, { paymentMethod }),
-
   getFeeStructure: () => api.get("/fees/structure"),
+
+  // Program Fee Configuration
+  getFeeConfig: () => api.get("/fees/config"),
+  saveFeeConfig: (data: { program_id: number; price_per_credit: number; effective_from?: string; effective_to?: string }) =>
+    api.post("/fees/config", data),
+  deleteFeeConfig: (id: number) => api.delete(`/fees/config/${id}`),
+
+  // Invoices
+  getInvoices: (params?: { studentId?: number; semester?: string; year?: number; status?: string }) =>
+    api.get("/fees/invoices", { params }),
+  getMyInvoices: () => api.get("/fees/invoices/my"),
+  generateInvoices: (data: { semester: string; year: number; studentId?: number }) =>
+    api.post("/fees/invoices/generate", data),
+  updateInvoice: (id: number, data: { status: string }) =>
+    api.put(`/fees/invoices/${id}`, data),
+
+  // Payments
+  getPayments: (params?: { studentId?: number; invoiceId?: number; status?: string }) =>
+    api.get("/fees/payments", { params }),
+  getMyPayments: () => api.get("/fees/payments/my"),
+  recordPayment: (data: { invoice_id: number; student_id: number; amount: number; payment_method?: string; transaction_reference?: string; admin_notes?: string }) =>
+    api.post("/fees/payments", data),
+  verifyPayment: (id: number) => api.put(`/fees/payments/${id}/verify`),
+
+  // Discounts
+  getDiscounts: () => api.get("/fees/discounts"),
+  createDiscount: (data: { student_id: number; type: string; value: number; reason?: string; semester: string; year: number }) =>
+    api.post("/fees/discounts", data),
+  deleteDiscount: (id: number) => api.delete(`/fees/discounts/${id}`),
+
+  // Penalties
+  getPenalties: () => api.get("/fees/penalties"),
+  createPenalty: (data: { student_id: number; amount: number; reason?: string; semester: string; year: number }) =>
+    api.post("/fees/penalties", data),
+  deletePenalty: (id: number) => api.delete(`/fees/penalties/${id}`),
+
+  // Student Fee Dashboard
+  getMyFeeDashboard: () => api.get("/fees/dashboard"),
 };
 
 // Announcements API

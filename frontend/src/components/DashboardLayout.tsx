@@ -58,7 +58,8 @@ export default function DashboardLayout({
       label: "Grade Booking",
       icon: GraduationCap,
     },
-    { href: "/admin/fees", label: "Fee Management", icon: DollarSign },
+    { href: "/admin/fees", label: "Fees", icon: DollarSign },
+    { href: "/admin/fees/configuration", label: "Fees Config", icon: DollarSign },
   ];
 
   const links =

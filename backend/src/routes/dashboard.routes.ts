@@ -128,11 +128,23 @@ router.get(
         /* table may not exist on first run */
       }
 
-      // Pending fees
-      const feeRow = await query(
-        "SELECT COALESCE(SUM(amount), 0) AS pending FROM payments WHERE student_id = ? AND status = 'pending'",
-        [student_id],
-      );
+      // Pending fees — try new table first, fall back to old
+      let pendingFees = 0;
+      try {
+        const feeRow = await query(
+          "SELECT COALESCE(SUM(amount), 0) AS pending FROM student_payments WHERE student_id = ? AND status = 'pending'",
+          [student_id],
+        );
+        pendingFees = Number(feeRow[0]?.pending || 0);
+      } catch {
+        try {
+          const feeRow = await query(
+            "SELECT COALESCE(SUM(amount), 0) AS pending FROM payments WHERE student_id = ? AND status = 'pending'",
+            [student_id],
+          );
+          pendingFees = Number(feeRow[0]?.pending || 0);
+        } catch {}
+      }
       let studyPlan: any = {
         semesters: [],
         enrollmentYear: null,
@@ -240,7 +252,7 @@ router.get(
           credits: Number(creditRow[0].total),
           semester,
           attendanceRate,
-          pendingFees: Number(feeRow[0].pending),
+          pendingFees,
           upcomingClasses: enrollments.map((e: any) => ({
             courseName: e.course_title,
             courseCode: e.course_code,
@@ -377,7 +389,7 @@ router.get(
   requireRole("admin"),
   async (req: Request, res: Response) => {
     try {
-      const [students, professors, courses, blocked, payments] =
+      const [students, professors, courses, blocked] =
         await Promise.all([
           query(
             "SELECT COUNT(*) AS count FROM users WHERE role = 'student' AND status = 'active'",
@@ -387,10 +399,22 @@ router.get(
           ),
           query("SELECT COUNT(*) AS count FROM courses"),
           query("SELECT COUNT(*) AS count FROM users WHERE status = 'blocked'"),
-          query(
-            "SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE status = 'completed'",
-          ),
         ]);
+
+      let totalRevenue = 0;
+      try {
+        const rev = await query(
+          "SELECT COALESCE(SUM(amount),0) AS total FROM student_payments WHERE status = 'completed'",
+        );
+        totalRevenue = Number(rev[0]?.total || 0);
+      } catch {
+        try {
+          const rev = await query(
+            "SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE status = 'completed'",
+          );
+          totalRevenue = Number(rev[0]?.total || 0);
+        } catch {}
+      }
 
       // These tables are created by migration — safe fallback if not yet created
       let enrollmentsCount = [{ count: 0 }];
@@ -422,7 +446,7 @@ router.get(
           totalCourses: Number(courses[0].count),
           activeEnrollments: Number(enrollmentsCount[0].count),
           blockedUsers: Number(blocked[0].count),
-          totalRevenue: Number(payments[0].total),
+          totalRevenue,
           pendingExemptions: Number(pendingExemptions[0].count),
           recentActivities: recentActivity.map((a: any) => ({
             type: a.action,
