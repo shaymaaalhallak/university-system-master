@@ -483,10 +483,16 @@ export default function ProfessorAssignmentsPage() {
                               className={`rounded-full px-3 py-1 text-xs font-medium ${
                                 student.submitted
                                   ? "bg-green-100 text-green-700"
-                                  : "bg-red-100 text-red-700"
+                                  : new Date(assignment.due_date) > new Date()
+                                    ? "bg-yellow-100 text-yellow-700"
+                                    : "bg-red-100 text-red-700"
                               }`}
                             >
-                              {student.submitted ? "Submitted" : "Missing"}
+                              {student.submitted
+                                ? "Submitted"
+                                : new Date(assignment.due_date) > new Date()
+                                  ? "Pending"
+                                  : "Missing"}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600">
@@ -495,7 +501,7 @@ export default function ProfessorAssignmentsPage() {
                           <td className="px-4 py-3 text-sm">
                             {student.fileUrl ? (
                               <a
-                                href={student.fileUrl}
+                                href={getAttachmentUrl(student.fileUrl) ?? "#"}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="text-blue-600 underline"

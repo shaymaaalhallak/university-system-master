@@ -5,6 +5,25 @@ import { useRouter } from "next/navigation";
 import { authApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
+function isStrongPassword(password: string): { valid: boolean; message: string } {
+  if (password.length < 8) {
+    return { valid: false, message: "Password must be at least 8 characters." };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, message: "Password must contain at least one uppercase letter." };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, message: "Password must contain at least one lowercase letter." };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, message: "Password must contain at least one digit." };
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    return { valid: false, message: "Password must contain at least one special character." };
+  }
+  return { valid: true, message: "" };
+}
+
 export default function ForceChangePasswordPage() {
   const router = useRouter();
   const { refreshUser, user } = useAuth();
@@ -18,8 +37,9 @@ export default function ForceChangePasswordPage() {
     e.preventDefault();
     setError("");
 
-    if (newPassword.length < 8) {
-      setError("New password must be at least 8 characters.");
+    const strong = isStrongPassword(newPassword);
+    if (!strong.valid) {
+      setError(strong.message);
       return;
     }
     if (newPassword !== confirmPassword) {

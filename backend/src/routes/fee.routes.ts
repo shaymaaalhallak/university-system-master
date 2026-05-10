@@ -349,15 +349,49 @@ router.get("/discounts", verifyToken, requireRole("admin"), async (req: Request,
 
 router.post("/discounts", verifyToken, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { student_id, type, value, reason, semester, year } = req.body;
-    if (!student_id || !type || value === undefined || !semester || !year) {
-      return res.status(400).json({ success: false, message: "student_id, type, value, semester, and year are required" });
+    const { student_id, type, value, reason, semester, year, all_students } = req.body;
+    if (value === undefined || !type || !semester || !year) {
+      return res.status(400).json({ success: false, message: "type, value, semester, and year are required" });
     }
-    const result: any = await query(
-      "INSERT INTO student_discounts (student_id, type, value, reason, semester, year) VALUES (?, ?, ?, ?, ?, ?)",
-      [student_id, type, value, reason || null, semester, year],
-    );
-    return res.status(201).json({ success: true, data: { id: result.insertId } });
+    if (!all_students && !student_id) {
+      return res.status(400).json({ success: false, message: "student_id is required when not applying to all students" });
+    }
+
+    const targetStudents: number[] = [];
+    if (all_students) {
+      const rows = await query(
+        "SELECT DISTINCT s.student_id FROM students s JOIN enrollments e ON s.student_id = e.student_id JOIN course_sections cs ON e.section_id = cs.section_id WHERE cs.semester = ? AND cs.year = ? AND e.status = 'active'",
+        [semester, year],
+      );
+      rows.forEach((r: any) => targetStudents.push(r.student_id));
+    } else {
+      targetStudents.push(student_id);
+    }
+
+    const createdIds: number[] = [];
+    for (const sid of targetStudents) {
+      const result: any = await query(
+        "INSERT INTO student_discounts (student_id, type, value, reason, semester, year) VALUES (?, ?, ?, ?, ?, ?)",
+        [sid, type, value, reason || null, semester, year],
+      );
+      createdIds.push(result.insertId);
+
+      // Update corresponding invoice
+      await query(
+        `UPDATE student_invoices si
+         SET si.discount_amount = COALESCE((SELECT SUM(value) FROM student_discounts WHERE student_id = ? AND semester = ? AND year = ?), 0),
+             si.final_amount = si.total_amount - si.discount_amount + si.penalty_amount,
+             si.status = CASE
+               WHEN si.paid_amount >= si.total_amount - si.discount_amount + si.penalty_amount THEN 'paid'
+               WHEN si.paid_amount > 0 THEN 'partial'
+               ELSE 'pending'
+             END
+         WHERE si.student_id = ? AND si.semester = ? AND si.year = ?`,
+        [sid, semester, year, sid, semester, year],
+      );
+    }
+
+    return res.status(201).json({ success: true, data: { ids: createdIds, count: createdIds.length } });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -366,7 +400,23 @@ router.post("/discounts", verifyToken, requireRole("admin"), async (req: Request
 
 router.delete("/discounts/:id", verifyToken, requireRole("admin"), async (req: Request, res: Response) => {
   try {
+    const disc = await query("SELECT student_id, semester, year FROM student_discounts WHERE id = ?", [req.params.id]);
     await query("DELETE FROM student_discounts WHERE id = ?", [req.params.id]);
+    if (disc.length > 0) {
+      const { student_id, semester, year } = disc[0];
+      await query(
+        `UPDATE student_invoices si
+         SET si.discount_amount = COALESCE((SELECT SUM(value) FROM student_discounts WHERE student_id = ? AND semester = ? AND year = ?), 0),
+             si.final_amount = si.total_amount - si.discount_amount + si.penalty_amount,
+             si.status = CASE
+               WHEN si.paid_amount >= si.total_amount - si.discount_amount + si.penalty_amount THEN 'paid'
+               WHEN si.paid_amount > 0 THEN 'partial'
+               ELSE 'pending'
+             END
+         WHERE si.student_id = ? AND si.semester = ? AND si.year = ?`,
+        [student_id, semester, year, student_id, semester, year],
+      );
+    }
     return res.json({ success: true, message: "Discount deleted" });
   } catch (error) {
     console.error(error);
@@ -394,15 +444,49 @@ router.get("/penalties", verifyToken, requireRole("admin"), async (req: Request,
 
 router.post("/penalties", verifyToken, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { student_id, amount, reason, semester, year } = req.body;
-    if (!student_id || amount === undefined || !semester || !year) {
-      return res.status(400).json({ success: false, message: "student_id, amount, semester, and year are required" });
+    const { student_id, amount, reason, semester, year, all_students } = req.body;
+    if (amount === undefined || !semester || !year) {
+      return res.status(400).json({ success: false, message: "amount, semester, and year are required" });
     }
-    const result: any = await query(
-      "INSERT INTO fee_penalties (student_id, amount, reason, semester, year) VALUES (?, ?, ?, ?, ?)",
-      [student_id, amount, reason || null, semester, year],
-    );
-    return res.status(201).json({ success: true, data: { id: result.insertId } });
+    if (!all_students && !student_id) {
+      return res.status(400).json({ success: false, message: "student_id is required when not applying to all students" });
+    }
+
+    const targetStudents: number[] = [];
+    if (all_students) {
+      const rows = await query(
+        "SELECT DISTINCT s.student_id FROM students s JOIN enrollments e ON s.student_id = e.student_id JOIN course_sections cs ON e.section_id = cs.section_id WHERE cs.semester = ? AND cs.year = ? AND e.status = 'active'",
+        [semester, year],
+      );
+      rows.forEach((r: any) => targetStudents.push(r.student_id));
+    } else {
+      targetStudents.push(student_id);
+    }
+
+    const createdIds: number[] = [];
+    for (const sid of targetStudents) {
+      const result: any = await query(
+        "INSERT INTO fee_penalties (student_id, amount, reason, semester, year) VALUES (?, ?, ?, ?, ?)",
+        [sid, amount, reason || null, semester, year],
+      );
+      createdIds.push(result.insertId);
+
+      // Update corresponding invoice
+      await query(
+        `UPDATE student_invoices si
+         SET si.penalty_amount = COALESCE((SELECT SUM(amount) FROM fee_penalties WHERE student_id = ? AND semester = ? AND year = ?), 0),
+             si.final_amount = si.total_amount - si.discount_amount + si.penalty_amount,
+             si.status = CASE
+               WHEN si.paid_amount >= si.total_amount - si.discount_amount + si.penalty_amount THEN 'paid'
+               WHEN si.paid_amount > 0 THEN 'partial'
+               ELSE 'pending'
+             END
+         WHERE si.student_id = ? AND si.semester = ? AND si.year = ?`,
+        [sid, semester, year, sid, semester, year],
+      );
+    }
+
+    return res.status(201).json({ success: true, data: { ids: createdIds, count: createdIds.length } });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -411,7 +495,23 @@ router.post("/penalties", verifyToken, requireRole("admin"), async (req: Request
 
 router.delete("/penalties/:id", verifyToken, requireRole("admin"), async (req: Request, res: Response) => {
   try {
+    const pen = await query("SELECT student_id, semester, year FROM fee_penalties WHERE id = ?", [req.params.id]);
     await query("DELETE FROM fee_penalties WHERE id = ?", [req.params.id]);
+    if (pen.length > 0) {
+      const { student_id, semester, year } = pen[0];
+      await query(
+        `UPDATE student_invoices si
+         SET si.penalty_amount = COALESCE((SELECT SUM(amount) FROM fee_penalties WHERE student_id = ? AND semester = ? AND year = ?), 0),
+             si.final_amount = si.total_amount - si.discount_amount + si.penalty_amount,
+             si.status = CASE
+               WHEN si.paid_amount >= si.total_amount - si.discount_amount + si.penalty_amount THEN 'paid'
+               WHEN si.paid_amount > 0 THEN 'partial'
+               ELSE 'pending'
+             END
+         WHERE si.student_id = ? AND si.semester = ? AND si.year = ?`,
+        [student_id, semester, year, student_id, semester, year],
+      );
+    }
     return res.json({ success: true, message: "Penalty deleted" });
   } catch (error) {
     console.error(error);

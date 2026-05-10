@@ -271,17 +271,27 @@ router.get("/me", verifyToken, async (req: Request, res: Response) => {
     return sendDatabaseAwareError(res, error, "Server error");
   }
 });
+const isStrongPassword = (password: string): boolean => {
+  const pw = String(password);
+  if (pw.length < 8) return false;
+  if (!/[A-Z]/.test(pw)) return false;
+  if (!/[a-z]/.test(pw)) return false;
+  if (!/[0-9]/.test(pw)) return false;
+  if (!/[^A-Za-z0-9]/.test(pw)) return false;
+  return true;
+};
+
 router.post(
   "/change-password",
   verifyToken,
   async (req: Request, res: Response) => {
     try {
       const { currentPassword, newPassword } = req.body;
-      if (!currentPassword || !newPassword || String(newPassword).length < 8) {
+      if (!currentPassword || !newPassword || !isStrongPassword(newPassword)) {
         return res.status(400).json({
           success: false,
           message:
-            "Current password and a new password (8+ chars) are required",
+            "Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a digit, and a special character",
         });
       }
 

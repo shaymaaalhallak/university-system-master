@@ -332,7 +332,7 @@ router.post(
       const hashedPassword = await bcrypt.hash(password, 10);
 
       const userInsert: any = await query(
-        "INSERT INTO users (first_name, last_name, email, password, phone, role, status) VALUES (?, ?, ?, ?, ?, 'student', 'active')",
+        "INSERT INTO users (first_name, last_name, email, password, must_change_password, phone, role, status) VALUES (?, ?, ?, ?, 1, ?, 'student', 'active')",
         [firstName, lastName, email, hashedPassword, phone],
       );
 
@@ -1731,10 +1731,20 @@ router.post(
     try {
       const { newPassword } = req.body;
 
-      if (!newPassword || newPassword.length < 6) {
+      const isStrongPassword = (pw: string): boolean => {
+        if (pw.length < 8) return false;
+        if (!/[A-Z]/.test(pw)) return false;
+        if (!/[a-z]/.test(pw)) return false;
+        if (!/[0-9]/.test(pw)) return false;
+        if (!/[^A-Za-z0-9]/.test(pw)) return false;
+        return true;
+      };
+
+      if (!newPassword || !isStrongPassword(String(newPassword))) {
         return res.status(400).json({
           success: false,
-          message: "Password must be at least 6 characters",
+          message:
+            "Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a digit, and a special character",
         });
       }
 

@@ -70,6 +70,7 @@ export default function AdminFees() {
   const [discReason, setDiscReason] = useState("");
   const [discSemester, setDiscSemester] = useState("Fall");
   const [discYear, setDiscYear] = useState(new Date().getFullYear().toString());
+  const [discAllStudents, setDiscAllStudents] = useState(false);
 
   // Penalty modal
   const [showPenalty, setShowPenalty] = useState(false);
@@ -78,6 +79,7 @@ export default function AdminFees() {
   const [penReason, setPenReason] = useState("");
   const [penSemester, setPenSemester] = useState("Fall");
   const [penYear, setPenYear] = useState(new Date().getFullYear().toString());
+  const [penAllStudents, setPenAllStudents] = useState(false);
 
   // Filter states
   const [searchStudent, setSearchStudent] = useState("");
@@ -152,15 +154,16 @@ export default function AdminFees() {
   };
 
   const handleCreateDiscount = async () => {
-    if (!discStudentId || !discValue) return;
+    if ((!discAllStudents && !discStudentId) || !discValue) return;
     try {
       const res = await api.post<any>("/fees/discounts", {
-        student_id: Number(discStudentId),
+        student_id: discAllStudents ? undefined : Number(discStudentId),
         type: discType,
         value: Number(discValue),
         reason: discReason || undefined,
         semester: discSemester,
         year: Number(discYear),
+        all_students: discAllStudents || undefined,
       });
       if (res.success) {
         fetchData();
@@ -168,6 +171,7 @@ export default function AdminFees() {
         setDiscStudentId("");
         setDiscValue("");
         setDiscReason("");
+        setDiscAllStudents(false);
       }
     } catch (err) {
       console.error(err);
@@ -175,14 +179,15 @@ export default function AdminFees() {
   };
 
   const handleCreatePenalty = async () => {
-    if (!penStudentId || !penAmount) return;
+    if ((!penAllStudents && !penStudentId) || !penAmount) return;
     try {
       const res = await api.post<any>("/fees/penalties", {
-        student_id: Number(penStudentId),
+        student_id: penAllStudents ? undefined : Number(penStudentId),
         amount: Number(penAmount),
         reason: penReason || undefined,
         semester: penSemester,
         year: Number(penYear),
+        all_students: penAllStudents || undefined,
       });
       if (res.success) {
         fetchData();
@@ -190,6 +195,7 @@ export default function AdminFees() {
         setPenStudentId("");
         setPenAmount("");
         setPenReason("");
+        setPenAllStudents(false);
       }
     } catch (err) {
       console.error(err);
@@ -674,12 +680,16 @@ export default function AdminFees() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Student</label>
-                  <select value={discStudentId} onChange={(e) => setDiscStudentId(e.target.value)} className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm">
+                  <select value={discStudentId} onChange={(e) => setDiscStudentId(e.target.value)} disabled={discAllStudents} className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm disabled:opacity-50">
                     <option value="">Select student...</option>
                     {students.map((s: any) => (
                       <option key={s.student_id} value={s.student_id}>{s.first_name} {s.last_name}</option>
                     ))}
                   </select>
+                  <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
+                    <input type="checkbox" checked={discAllStudents} onChange={(e) => setDiscAllStudents(e.target.checked)} className="rounded border-gray-300" />
+                    Apply to all students enrolled this semester
+                  </label>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Type</label>
@@ -714,7 +724,7 @@ export default function AdminFees() {
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setShowDiscount(false)} className="flex-1 px-4 py-2 border border-[#DED7CB] rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-                  <button onClick={handleCreateDiscount} disabled={!discStudentId || !discValue} className="flex-1 px-4 py-2 bg-[#7A263A] text-white rounded-lg text-sm hover:bg-[#6A1F31] disabled:opacity-50">Create</button>
+                  <button onClick={handleCreateDiscount} disabled={(!discAllStudents && !discStudentId) || !discValue} className="flex-1 px-4 py-2 bg-[#7A263A] text-white rounded-lg text-sm hover:bg-[#6A1F31] disabled:opacity-50">Create</button>
                 </div>
               </div>
             </div>
@@ -729,12 +739,16 @@ export default function AdminFees() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Student</label>
-                  <select value={penStudentId} onChange={(e) => setPenStudentId(e.target.value)} className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm">
+                  <select value={penStudentId} onChange={(e) => setPenStudentId(e.target.value)} disabled={penAllStudents} className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm disabled:opacity-50">
                     <option value="">Select student...</option>
                     {students.map((s: any) => (
                       <option key={s.student_id} value={s.student_id}>{s.first_name} {s.last_name}</option>
                     ))}
                   </select>
+                  <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
+                    <input type="checkbox" checked={penAllStudents} onChange={(e) => setPenAllStudents(e.target.checked)} className="rounded border-gray-300" />
+                    Apply to all students enrolled this semester
+                  </label>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Amount ($)</label>
@@ -760,7 +774,7 @@ export default function AdminFees() {
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setShowPenalty(false)} className="flex-1 px-4 py-2 border border-[#DED7CB] rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-                  <button onClick={handleCreatePenalty} disabled={!penStudentId || !penAmount} className="flex-1 px-4 py-2 bg-[#7A263A] text-white rounded-lg text-sm hover:bg-[#6A1F31] disabled:opacity-50">Create</button>
+                  <button onClick={handleCreatePenalty} disabled={(!penAllStudents && !penStudentId) || !penAmount} className="flex-1 px-4 py-2 bg-[#7A263A] text-white rounded-lg text-sm hover:bg-[#6A1F31] disabled:opacity-50">Create</button>
                 </div>
               </div>
             </div>

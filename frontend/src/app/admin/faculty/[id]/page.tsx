@@ -365,8 +365,24 @@ export default function FacultyDetailsPage() {
                 </Link>
                 <button
                   onClick={async () => {
-                    const newPassword = prompt("New password");
+                    const newPassword = prompt(
+                      "Enter new password (min 8 chars, 1 uppercase, 1 lowercase, 1 digit, 1 special character)",
+                    );
                     if (!newPassword) return;
+                    const strong = (pw: string): boolean => {
+                      if (pw.length < 8) return false;
+                      if (!/[A-Z]/.test(pw)) return false;
+                      if (!/[a-z]/.test(pw)) return false;
+                      if (!/[0-9]/.test(pw)) return false;
+                      if (!/[^A-Za-z0-9]/.test(pw)) return false;
+                      return true;
+                    };
+                    if (!strong(newPassword)) {
+                      alert(
+                        "Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a digit, and a special character.",
+                      );
+                      return;
+                    }
                     await api.post(`/users/${id}/reset-password`, {
                       newPassword,
                     });

@@ -13,6 +13,8 @@ type Course = {
   course_code: string;
   course_title: string;
   credits: number;
+  department_id: number | null;
+  program_id: number | null;
   department_name: string | null;
   program_name: string | null;
 };
@@ -22,6 +24,9 @@ export default function ManageCoursesPage() {
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
   const [search, setSearch] = useState("");
+  const [prereqCourse, setPrereqCourse] = useState<Course | null>(null);
+  const [showPrereqModal, setShowPrereqModal] = useState(false);
+  const [selectedPrereqId, setSelectedPrereqId] = useState("");
 
   useEffect(() => {
     if (!isLoading && user?.role !== "admin") router.push("/login");
@@ -121,13 +126,10 @@ export default function ManageCoursesPage() {
                   </Link>
                   <button
                     className="text-black"
-                    onClick={async () => {
-                      const requiredCourseId = prompt("Prerequisite course ID");
-                      if (!requiredCourseId) return;
-                      await api.post(`/courses/${c.course_id}/prerequisites`, {
-                        requiredCourseId,
-                      });
-                      alert("Prerequisite added");
+                    onClick={() => {
+                      setPrereqCourse(c);
+                      setSelectedPrereqId("");
+                      setShowPrereqModal(true);
                     }}
                   >
                     🔗 Prerequisites
@@ -146,6 +148,51 @@ export default function ManageCoursesPage() {
         </table>
       </div>
     </div>
+      {/* Prerequisite Modal */}
+      {showPrereqModal && prereqCourse && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPrereqModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Add Prerequisite for <span className="text-[#7A263A]">{prereqCourse.course_code}</span>
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">Select a course that must be completed before {prereqCourse.course_code}.</p>
+            <select
+              value={selectedPrereqId}
+              onChange={(e) => setSelectedPrereqId(e.target.value)}
+              className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm mb-4"
+            >
+              <option value="">Choose a prerequisite course...</option>
+              {courses
+                .filter((c) => c.course_id !== prereqCourse.course_id)
+                .filter((c) => !prereqCourse.program_id || c.program_id === prereqCourse.program_id || !c.program_id)
+                .map((c) => (
+                  <option key={c.course_id} value={c.course_id}>
+                    {c.course_code} — {c.course_title}{c.program_name ? ` (${c.program_name})` : " (Common)"}
+                  </option>
+                ))}
+            </select>
+            {courses.filter((c) => c.course_id !== prereqCourse.course_id).filter((c) => !prereqCourse.program_id || c.program_id === prereqCourse.program_id || !c.program_id).length === 0 && (
+              <p className="text-sm text-gray-500 mb-4">No courses available in the same program.</p>
+            )}
+            <div className="flex gap-3">
+              <button onClick={() => setShowPrereqModal(false)} className="flex-1 px-4 py-2 border border-[#DED7CB] rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button
+                onClick={async () => {
+                  if (!selectedPrereqId) return;
+                  await api.post(`/courses/${prereqCourse.course_id}/prerequisites`, { requiredCourseId: selectedPrereqId });
+                  setShowPrereqModal(false);
+                  setSelectedPrereqId("");
+                  alert("Prerequisite added");
+                }}
+                disabled={!selectedPrereqId}
+                className="flex-1 px-4 py-2 bg-[#7A263A] text-white rounded-lg text-sm hover:bg-[#6A1F31] disabled:opacity-50"
+              >
+                Add Prerequisite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
