@@ -4,8 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
-import { BookOpen, Calendar, ClipboardList, Paperclip, Save, Trash2, Users } from "lucide-react";
-
+import {
+  BookOpen,
+  Calendar,
+  ClipboardList,
+  Paperclip,
+  Save,
+  Trash2,
+  Users,
+} from "lucide-react";
+import DashboardLayout from "@/components/DashboardLayout";
 type Section = {
   section_id: number;
   course_id: number;
@@ -51,7 +59,8 @@ const getAttachmentUrl = (attachmentPath: string | null) => {
     return attachmentPath;
   }
 
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000/api";
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000/api";
   const backendBase = apiBase.endsWith("/api") ? apiBase.slice(0, -4) : apiBase;
   return `${backendBase}${attachmentPath}`;
 };
@@ -68,7 +77,9 @@ export default function ProfessorAssignmentsPage() {
 
   const [sections, setSections] = useState<Section[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
-  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<number | null>(
+    null,
+  );
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingAssignments, setLoadingAssignments] = useState(false);
@@ -98,7 +109,9 @@ export default function ProfessorAssignmentsPage() {
     const loadSections = async () => {
       try {
         setLoading(true);
-        const response = await api.get<{ success: boolean; data: Section[] }>("/professor/my-sections");
+        const response = await api.get<{ success: boolean; data: Section[] }>(
+          "/professor/my-sections",
+        );
         if (!response.success) {
           throw new Error("Failed to load sections");
         }
@@ -136,9 +149,10 @@ export default function ProfessorAssignmentsPage() {
       try {
         setLoadingAssignments(true);
         setError(null);
-        const response = await api.get<{ success: boolean; data: Assignment[] }>(
-          `/assignments/section/${selectedSectionId}/submissions`
-        );
+        const response = await api.get<{
+          success: boolean;
+          data: Assignment[];
+        }>(`/assignments/section/${selectedSectionId}/submissions`);
         if (!response.success) {
           throw new Error("Failed to load assignments");
         }
@@ -157,14 +171,20 @@ export default function ProfessorAssignmentsPage() {
   const totalSubmitted = useMemo(
     () =>
       assignments.reduce(
-        (sum, assignment) => sum + (assignment.students?.filter((student) => student.submitted).length ?? 0),
-        0
+        (sum, assignment) =>
+          sum +
+          (assignment.students?.filter((student) => student.submitted).length ??
+            0),
+        0,
       ),
-    [assignments]
+    [assignments],
   );
 
   const courses = useMemo(() => {
-    const courseMap = new Map<number, { course_id: number; course_code: string; course_title: string }>();
+    const courseMap = new Map<
+      number,
+      { course_id: number; course_code: string; course_title: string }
+    >();
 
     sections.forEach((section) => {
       if (!courseMap.has(section.course_id)) {
@@ -181,7 +201,7 @@ export default function ProfessorAssignmentsPage() {
 
   const sectionsForCourse = useMemo(
     () => sections.filter((section) => section.course_id === selectedCourseId),
-    [sections, selectedCourseId]
+    [sections, selectedCourseId],
   );
 
   const handleCreateAssignment = async () => {
@@ -204,7 +224,10 @@ export default function ProfessorAssignmentsPage() {
         payload.append("attachment", attachmentFile);
       }
 
-      const response = await api.post<{ success: boolean; data: { assignmentId: number } }>("/assignments", payload);
+      const response = await api.post<{
+        success: boolean;
+        data: { assignmentId: number };
+      }>("/assignments", payload);
 
       if (!response.success) {
         throw new Error("Failed to create assignment");
@@ -220,7 +243,7 @@ export default function ProfessorAssignmentsPage() {
       setMessage("Assignment created successfully.");
 
       const reload = await api.get<{ success: boolean; data: Assignment[] }>(
-        `/assignments/section/${selectedSectionId}/submissions`
+        `/assignments/section/${selectedSectionId}/submissions`,
       );
       if (reload.success) {
         setAssignments(reload.data ?? []);
@@ -233,12 +256,22 @@ export default function ProfessorAssignmentsPage() {
     }
   };
 
-  const handleDeleteAssignment = async (assignmentId: number, title: string) => {
-    if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) return;
+  const handleDeleteAssignment = async (
+    assignmentId: number,
+    title: string,
+  ) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete "${title}"? This action cannot be undone.`,
+      )
+    )
+      return;
     try {
       setDeletingId(assignmentId);
       setError(null);
-      const response = await api.delete<{ success: boolean; message: string }>(`/assignments/${assignmentId}`);
+      const response = await api.delete<{ success: boolean; message: string }>(
+        `/assignments/${assignmentId}`,
+      );
       if (response.success) {
         setMessage("Assignment deleted successfully.");
         setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
@@ -260,268 +293,353 @@ export default function ProfessorAssignmentsPage() {
   }
 
   if (user?.role !== "professor") {
-    return <div className="p-6">Access denied. This page is for professors only.</div>;
+    return (
+      <div className="p-6">
+        Access denied. This page is for professors only.
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6 text-black">
-      <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-100 p-3">
-            <BookOpen className="text-purple-700" size={22} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Professor Assignments</h1>
-            <p className="text-sm text-gray-500">
-              Create assignments with deadlines and track which students submitted them.
-            </p>
+    <DashboardLayout>
+      <div className="space-y-6 text-black">
+        <div className="rounded-xl border bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-purple-100 p-3">
+              <BookOpen className="text-purple-700" size={22} />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                Professor Assignments
+              </h1>
+              <p className="text-sm text-gray-500">
+                Create assignments with deadlines and track which students
+                submitted them.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Course</label>
-            <select
-              value={selectedCourseId ?? ""}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (!value) {
-                  setSelectedCourseId(null);
+        <div className="rounded-xl border bg-white p-6 shadow-sm">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Course
+              </label>
+              <select
+                value={selectedCourseId ?? ""}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (!value) {
+                    setSelectedCourseId(null);
+                    setSelectedSectionId(null);
+                    setAssignments([]);
+                    return;
+                  }
+
+                  setSelectedCourseId(Number(value));
                   setSelectedSectionId(null);
                   setAssignments([]);
-                  return;
-                }
-
-                setSelectedCourseId(Number(value));
-                setSelectedSectionId(null);
-                setAssignments([]);
-              }}
-              className="w-full rounded-lg border px-3 py-2"
-            >
-              <option value="">Select course</option>
-              {courses.map((course) => (
-                <option key={course.course_id} value={course.course_id}>
-                  {course.course_code} - {course.course_title}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Section</label>
-            <select
-              value={selectedSectionId ?? ""}
-              onChange={(e) => setSelectedSectionId(e.target.value ? Number(e.target.value) : null)}
-              disabled={!selectedCourseId}
-              className="w-full rounded-lg border px-3 py-2 disabled:bg-gray-100"
-            >
-              <option value="">Select section</option>
-              {sectionsForCourse.map((section) => (
-                <option key={section.section_id} value={section.section_id}>
-                  Section {section.section_id} - {section.schedule_time}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {!sections.length && (
-          <p className="mt-4 rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
-            No courses were returned for this professor. If you already assigned sections, reload after backend restart.
-          </p>
-        )}
-      </div>
-
-      {selectedSectionId && (
-        <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="text-green-700" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">Create Assignment</h2>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <input
-              value={form.title}
-              onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
-              placeholder="Assignment title"
-              className="rounded-lg border px-3 py-2"
-            />
-            <input
-              type="number"
-              min="1"
-              value={form.maxScore}
-              onChange={(e) => setForm((current) => ({ ...current, maxScore: Number(e.target.value) || 100 }))}
-              className="rounded-lg border px-3 py-2"
-              placeholder="Max score"
-            />
-          </div>
-
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
-            placeholder="Assignment description"
-            className="min-h-32 w-full rounded-lg border px-3 py-2"
-          />
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">Attachment</label>
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.rar,.txt,image/*"
-              onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
-              className="w-full rounded-lg border px-3 py-2"
-            />
-            <p className="text-xs text-gray-500">
-              The professor can attach a PDF or another course file. Max upload size is 10 MB.
-            </p>
-          </div>
-
-          <div className="max-w-md">
-            <label className="mb-2 block text-sm font-medium text-gray-700">Deadline</label>
-            <input
-              type="datetime-local"
-              value={form.dueDate}
-              onChange={(e) => setForm((current) => ({ ...current, dueDate: e.target.value }))}
-              className="w-full rounded-lg border px-3 py-2"
-            />
-          </div>
-
-          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          {message && <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{message}</p>}
-
-          <button
-            type="button"
-            onClick={handleCreateAssignment}
-            disabled={saving || !form.title.trim()}
-            className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-white disabled:bg-green-300"
-          >
-            <Save size={16} />
-            {saving ? "Saving..." : "Create Assignment"}
-          </button>
-        </div>
-      )}
-
-      {selectedSectionId && (
-        <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Users className="text-blue-600" size={20} />
-              <h2 className="text-lg font-semibold text-gray-900">Submission Tracking</h2>
+                }}
+                className="w-full rounded-lg border px-3 py-2"
+              >
+                <option value="">Select course</option>
+                {courses.map((course) => (
+                  <option key={course.course_id} value={course.course_id}>
+                    {course.course_code} - {course.course_title}
+                  </option>
+                ))}
+              </select>
             </div>
-            <span className="text-sm text-gray-500">Total submitted records: {totalSubmitted}</span>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Section
+              </label>
+              <select
+                value={selectedSectionId ?? ""}
+                onChange={(e) =>
+                  setSelectedSectionId(
+                    e.target.value ? Number(e.target.value) : null,
+                  )
+                }
+                disabled={!selectedCourseId}
+                className="w-full rounded-lg border px-3 py-2 disabled:bg-gray-100"
+              >
+                <option value="">Select section</option>
+                {sectionsForCourse.map((section) => (
+                  <option key={section.section_id} value={section.section_id}>
+                    Section {section.section_id} - {section.schedule_time}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {loadingAssignments && <p className="text-gray-500">Loading assignments...</p>}
-
-          {!loadingAssignments && !assignments.length && (
-            <p className="text-gray-500">No assignments yet for this section.</p>
+          {!sections.length && (
+            <p className="mt-4 rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+              No courses were returned for this professor. If you already
+              assigned sections, reload after backend restart.
+            </p>
           )}
+        </div>
 
-          {!loadingAssignments &&
-            assignments.map((assignment) => (
-              <div key={assignment.id} className="rounded-xl border p-4">
-                <div className="mb-4 flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{assignment.title}</h3>
-                    <p className="text-sm text-gray-500">{assignment.description}</p>
-                    {getAttachmentUrl(assignment.attachment_url) && (
-                      <a
-                        href={getAttachmentUrl(assignment.attachment_url) ?? "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-flex items-center gap-2 text-sm text-blue-600 underline"
+        {selectedSectionId && (
+          <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="text-green-700" size={20} />
+              <h2 className="text-lg font-semibold text-gray-900">
+                Create Assignment
+              </h2>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <input
+                value={form.title}
+                onChange={(e) =>
+                  setForm((current) => ({ ...current, title: e.target.value }))
+                }
+                placeholder="Assignment title"
+                className="rounded-lg border px-3 py-2"
+              />
+              <input
+                type="number"
+                min="1"
+                value={form.maxScore}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    maxScore: Number(e.target.value) || 100,
+                  }))
+                }
+                className="rounded-lg border px-3 py-2"
+                placeholder="Max score"
+              />
+            </div>
+
+            <textarea
+              value={form.description}
+              onChange={(e) =>
+                setForm((current) => ({
+                  ...current,
+                  description: e.target.value,
+                }))
+              }
+              placeholder="Assignment description"
+              className="min-h-32 w-full rounded-lg border px-3 py-2"
+            />
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Attachment
+              </label>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.rar,.txt,image/*"
+                onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
+                className="w-full rounded-lg border px-3 py-2"
+              />
+              <p className="text-xs text-gray-500">
+                The professor can attach a PDF or another course file. Max
+                upload size is 10 MB.
+              </p>
+            </div>
+
+            <div className="max-w-md">
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Deadline
+              </label>
+              <input
+                type="datetime-local"
+                value={form.dueDate}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    dueDate: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border px-3 py-2"
+              />
+            </div>
+
+            {error && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                {message}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleCreateAssignment}
+              disabled={saving || !form.title.trim()}
+              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-white disabled:bg-green-300"
+            >
+              <Save size={16} />
+              {saving ? "Saving..." : "Create Assignment"}
+            </button>
+          </div>
+        )}
+
+        {selectedSectionId && (
+          <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="text-blue-600" size={20} />
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Submission Tracking
+                </h2>
+              </div>
+              <span className="text-sm text-gray-500">
+                Total submitted records: {totalSubmitted}
+              </span>
+            </div>
+
+            {loadingAssignments && (
+              <p className="text-gray-500">Loading assignments...</p>
+            )}
+
+            {!loadingAssignments && !assignments.length && (
+              <p className="text-gray-500">
+                No assignments yet for this section.
+              </p>
+            )}
+
+            {!loadingAssignments &&
+              assignments.map((assignment) => (
+                <div key={assignment.id} className="rounded-xl border p-4">
+                  <div className="mb-4 flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">
+                        {assignment.title}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {assignment.description}
+                      </p>
+                      {getAttachmentUrl(assignment.attachment_url) && (
+                        <a
+                          href={
+                            getAttachmentUrl(assignment.attachment_url) ?? "#"
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-flex items-center gap-2 text-sm text-blue-600 underline"
+                        >
+                          <Paperclip size={14} />
+                          Open assignment attachment
+                        </a>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteAssignment(
+                            assignment.id,
+                            assignment.title,
+                          )
+                        }
+                        disabled={deletingId === assignment.id}
+                        className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-60"
+                        title="Delete assignment"
                       >
-                        <Paperclip size={14} />
-                        Open assignment attachment
-                      </a>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteAssignment(assignment.id, assignment.title)}
-                      disabled={deletingId === assignment.id}
-                      className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-700 hover:bg-red-100 disabled:opacity-60"
-                      title="Delete assignment"
-                    >
-                      {deletingId === assignment.id ? "..." : <Trash2 size={16} />}
-                    </button>
-                    <div className="text-right text-sm text-gray-500">
-                      <div className="flex items-center gap-2 justify-end">
-                        <Calendar size={14} />
-                        <span>{new Date(assignment.due_date).toLocaleDateString()}</span>
+                        {deletingId === assignment.id ? (
+                          "..."
+                        ) : (
+                          <Trash2 size={16} />
+                        )}
+                      </button>
+                      <div className="text-right text-sm text-gray-500">
+                        <div className="flex items-center gap-2 justify-end">
+                          <Calendar size={14} />
+                          <span>
+                            {new Date(assignment.due_date).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div>Max score: {assignment.max_score}</div>
                       </div>
-                      <div>Max score: {assignment.max_score}</div>
                     </div>
                   </div>
-                </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[760px]">
-                    <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
-                      <tr>
-                        <th className="px-4 py-3">Student</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Submitted At</th>
-                        <th className="px-4 py-3">File</th>
-                        <th className="px-4 py-3">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {assignment.students?.map((student) => (
-                        <tr key={`${assignment.id}-${student.student_id}`}>
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-gray-900">
-                              {student.first_name} {student.last_name}
-                            </div>
-                            <div className="text-sm text-gray-500">{student.email}</div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                student.submitted
-                                  ? "bg-green-100 text-green-700"
-                                  : new Date(assignment.due_date) > new Date()
-                                    ? "bg-yellow-100 text-yellow-700"
-                                    : "bg-red-100 text-red-700"
-                              }`}
-                            >
-                              {student.submitted
-                                ? "Submitted"
-                                : new Date(assignment.due_date) > new Date()
-                                  ? "Pending"
-                                  : "Missing"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {student.submissionDate ? new Date(student.submissionDate).toLocaleString() : "-"}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {student.fileUrl ? (
-                              <a
-                                href={getAttachmentUrl(student.fileUrl) ?? "#"}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-600 underline"
-                              >
-                                Open file
-                              </a>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">{student.score ?? "-"}</td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px]">
+                      <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+                        <tr>
+                          <th className="px-4 py-3">Student</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">Submitted At</th>
+                          <th className="px-4 py-3">File</th>
+                          <th className="px-4 py-3">Score</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {assignment.students?.map((student) => (
+                          <tr key={`${assignment.id}-${student.student_id}`}>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-gray-900">
+                                {student.first_name} {student.last_name}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {student.email}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                  student.submitted
+                                    ? "bg-green-100 text-green-700"
+                                    : new Date(assignment.due_date) > new Date()
+                                      ? "bg-yellow-100 text-yellow-700"
+                                      : "bg-red-100 text-red-700"
+                                }`}
+                              >
+                                {student.submitted
+                                  ? "Submitted"
+                                  : new Date(assignment.due_date) > new Date()
+                                    ? "Pending"
+                                    : "Missing"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {student.submissionDate
+                                ? new Date(
+                                    student.submissionDate,
+                                  ).toLocaleString()
+                                : "-"}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              {student.fileUrl ? (
+                                <a
+                                  href={
+                                    getAttachmentUrl(student.fileUrl) ?? "#"
+                                  }
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-blue-600 underline"
+                                >
+                                  Open file
+                                </a>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700">
+                              {student.score ?? "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            ))}
-        </div>
-      )}
-    </div>
+              ))}
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
   );
 }

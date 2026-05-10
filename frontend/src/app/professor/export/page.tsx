@@ -66,21 +66,13 @@ const FIELD_OPTIONS: Array<{ key: ExportFieldKey; label: string }> = [
 ];
 
 const DEFAULT_FIELDS: ExportFieldKey[] = ["studentId", "fullName", "email", "major"];
-const ATTENDANCE_HEADER = "Attendance Status";
+const ATTENDANCE_HEADER = "Attendance";
 
 const getTodayLocal = () => {
   const now = new Date();
   const offset = now.getTimezoneOffset();
   return new Date(now.getTime() - offset * 60000).toISOString().split("T")[0];
 };
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 
 const normalizeHeader = (value: unknown) =>
   String(value ?? "")
@@ -105,7 +97,6 @@ export default function ProfessorExportPage() {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [logoDataUrl, setLogoDataUrl] = useState<string>("");
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -139,29 +130,6 @@ export default function ProfessorExportPage() {
 
     loadSections();
   }, [user]);
-
-  useEffect(() => {
-    const loadLogo = async () => {
-      try {
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.onload = () => {
-          const canvas = document.createElement("canvas");
-          canvas.width = image.width;
-          canvas.height = image.height;
-          const context = canvas.getContext("2d");
-          if (!context) return;
-          context.drawImage(image, 0, 0);
-          setLogoDataUrl(canvas.toDataURL("image/png"));
-        };
-        image.src = "/branding/wiu-logo.webp";
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    loadLogo();
-  }, []);
 
   const courses = useMemo(() => {
     const courseMap = new Map<number, { course_id: number; course_code: string; course_title: string }>();
@@ -334,103 +302,40 @@ export default function ProfessorExportPage() {
             ? "Grades Import Template"
             : "Student Roster Export";
 
-      const infoLines = [
-        "Wadi International University",
-        title,
-        `${selectedSection.course_code} - ${selectedSection.course_title} | Section ${selectedSection.section_id}`,
-        `Professor: ${professorName}`,
-        sheetMode === "attendance" ? `Attendance date: ${attendanceDate}` : "",
-        `Generated on ${new Date().toLocaleString()}`,
-      ].filter(Boolean);
+      const wsData: any[][] = [
+        ["Wadi International University"],
+        [title],
+        [`${selectedSection.course_code} - ${selectedSection.course_title} | Section ${selectedSection.section_id}`],
+        [`Professor: ${professorName}`],
+      ];
 
-      const headerCells = headers.map((label) => `<th>${escapeHtml(String(label))}</th>`).join("");
-      const bodyRows = rows
-        .map(
-          (row) =>
-            `<tr>${row
-              .map((value) => `<td>${escapeHtml(String(value ?? ""))}</td>`)
-              .join("")}</tr>`
-        )
-        .join("");
+      if (sheetMode === "attendance") {
+        wsData.push([`Attendance date: ${attendanceDate}`]);
+      }
 
-      const infoRows = infoLines
-        .map(
-          (line) =>
-            `<tr><td colspan="${headers.length}" style="text-align:center; padding: 8px;">${escapeHtml(line)}</td></tr>`
-        )
-        .join("");
+      wsData.push([`Generated on ${new Date().toLocaleString()}`]);
+      wsData.push([]);
+      wsData.push(headers);
+      rows.forEach((row) => wsData.push(row));
 
-      const htmlBody = `
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:x="urn:schemas-microsoft-com:office:excel"
-      xmlns="http://www.w3.org/TR/REC-html40">
-  <head>
-    <meta charset="utf-8" />
-    <!--[if gte mso 9]>
-      <xml>
-        <x:ExcelWorkbook>
-          <x:ExcelWorksheets>
-            <x:ExcelWorksheet>
-              <x:Name>Students</x:Name>
-              <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
-            </x:ExcelWorksheet>
-          </x:ExcelWorksheets>
-        </x:ExcelWorkbook>
-      </xml>
-    <![endif]-->
-  </head>
-  <body>
-    <table border="1">
-      <tr>
-        <td colspan="${headers.length}" style="text-align:center; padding: 14px;">
-          ${
-            logoDataUrl
-              ? `<img src="file:///C:/fakepath/wiu-logo.png" alt="WIU Logo" style="width:110px;height:110px;object-fit:contain;" />`
-              : "Wadi International University"
-          }
-        </td>
-      </tr>
-      ${infoRows}
-      <tr>${headerCells}</tr>
-      ${bodyRows}
-    </table>
-  </body>
-</html>`;
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-      const boundary = "----=_NextPart_WIU_Export";
-      const logoBase64 = logoDataUrl.startsWith("data:") ? logoDataUrl.split(",")[1] : "";
-      const mhtmlContent = [
-        "MIME-Version: 1.0",
-        `Content-Type: multipart/related; boundary="${boundary}"`,
-        "",
-        `--${boundary}`,
-        `Content-Type: text/html; charset="utf-8"`,
-        `Content-Location: file:///C:/fakepath/export-sheet.htm`,
-        "",
-        htmlBody,
-        logoBase64
-          ? [
-              `--${boundary}`,
-              "Content-Type: image/png",
-              "Content-Transfer-Encoding: base64",
-              "Content-Location: file:///C:/fakepath/wiu-logo.png",
-              "",
-              logoBase64,
-            ].join("\n")
-          : "",
-        `--${boundary}--`,
-      ]
-        .filter(Boolean)
-        .join("\n");
+      ws["!cols"] = headers.map(() => ({ wch: 22 }));
+      ws["!merges"] = [];
+      for (let i = 0; i < wsData.length - rows.length - 1; i++) {
+        if (i === wsData.length - rows.length - 2) continue;
+        ws["!merges"].push({ s: { r: i, c: 0 }, e: { r: i, c: headers.length - 1 } });
+      }
 
-      const blob = new Blob([mhtmlContent], {
-        type: "application/vnd.ms-excel;charset=utf-8;",
-      });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Students");
+      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${selectedSection.course_code}-section-${selectedSection.section_id}-${sheetMode}.xls`;
+      anchor.download = `${selectedSection.course_code}-section-${selectedSection.section_id}-${sheetMode}.xlsx`;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
@@ -846,7 +751,7 @@ export default function ProfessorExportPage() {
                   {importing ? "Importing..." : "Import Filled Excel"}
                   <input
                     type="file"
-                    accept=".xls,.xlsx,.csv"
+                    accept=".xlsx,.xls,.csv"
                     onChange={handleImportFile}
                     disabled={!selectedSectionId || importing}
                     className="hidden"
