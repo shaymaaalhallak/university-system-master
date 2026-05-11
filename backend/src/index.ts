@@ -22,6 +22,7 @@ import professorRoutes from "./routes/professor.routes";
 import scheduleRoutes from "./routes/schedule.routes";
 import exemptionRoutes from "./routes/exemption.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
+import roomRoutes from "./routes/room.routes";
 
 // db.ts calls dotenv.config() internally — env vars loaded before anything else
 import db from "./config/db";
@@ -74,6 +75,7 @@ app.use("/api/professor", professorRoutes);
 app.use("/api/schedule", scheduleRoutes);
 app.use("/api/exemptions", exemptionRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/rooms", roomRoutes);
 
 app.get("/api/health", (_req: Request, res: Response) =>
   res.json({ status: "ok", port: PORT, time: new Date().toISOString() }),

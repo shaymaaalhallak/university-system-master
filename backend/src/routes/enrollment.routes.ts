@@ -360,18 +360,25 @@ router.post(
         });
       }
 
-      // All checks passed — enroll
-      console.log("[ENROLL] Step 13: inserting enrollment");
-      const result: any = await query(
-        "INSERT INTO enrollments (student_id, section_id, status) VALUES (?, ?, 'active')",
+      // All checks passed — enroll (re-activate if previously dropped)
+      console.log("[ENROLL] Step 13: inserting/updating enrollment");
+      await query(
+        `INSERT INTO enrollments (student_id, section_id, status)
+         VALUES (?, ?, 'active')
+         ON DUPLICATE KEY UPDATE status = 'active'`,
         [studentId, sectionId],
       );
 
-      console.log("[ENROLL] SUCCESS: enrollmentId=", result.insertId);
+      const enrollment = await query(
+        "SELECT enrollment_id FROM enrollments WHERE student_id = ? AND section_id = ?",
+        [studentId, sectionId],
+      );
+
+      console.log("[ENROLL] SUCCESS: enrollmentId=", enrollment[0]?.enrollment_id);
       return res.status(201).json({
         success: true,
         message: "Successfully enrolled",
-        data: { enrollmentId: result.insertId },
+        data: { enrollmentId: enrollment[0]?.enrollment_id },
       });
     } catch (error: any) {
       console.error("[ENROLL] ERROR:", error.message);

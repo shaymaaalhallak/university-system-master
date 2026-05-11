@@ -23,6 +23,7 @@ const initial: FacultyFormValues = {
   degreeProgramId: "",
   title: "Professor",
   hireDate: new Date().toISOString().slice(0, 10),
+  personalEmail: "",
 };
 
 export default function CreateFacultyPage() {
@@ -62,9 +63,15 @@ export default function CreateFacultyPage() {
       );
       if (res.success) {
         const credentials = res.data as any;
-        alert(
-          `Professor created.\nEmail: ${credentials.generatedEmail}\nPassword: ${credentials.generatedPassword}\n\nShare these credentials securely. Professor will be forced to change password on first login.`,
-        );
+        if (credentials.emailSent) {
+          alert(
+            `Professor created. Credentials have been sent to the personal email.\n\nEmail: ${credentials.generatedEmail}`,
+          );
+        } else {
+          alert(
+            `Professor created.\nEmail: ${credentials.generatedEmail}\nPassword: ${credentials.generatedPassword}\n\nShare these credentials securely. Professor will be forced to change password on first login.`,
+          );
+        }
         router.push(`/admin/faculty/${res.data.userId}`);
       }
     } catch (e: any) {

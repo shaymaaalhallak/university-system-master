@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
+import SearchableSelect from "@/components/SearchableSelect";
 import {
   DollarSign, FileText, CreditCard, Percent, AlertTriangle,
   Plus, Trash2, CheckCircle, Search
@@ -628,12 +629,12 @@ export default function AdminFees() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Student</label>
-                  <select value={payStudentId} onChange={(e) => setPayStudentId(e.target.value)} className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm">
-                    <option value="">Select student...</option>
-                    {students.map((s: any) => (
-                      <option key={s.student_id} value={s.student_id}>{s.first_name} {s.last_name}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={students.map((s: any) => ({ value: s.student_id, label: `${s.first_name} ${s.last_name} (${s.email})` }))}
+                    value={payStudentId}
+                    onChange={setPayStudentId}
+                    placeholder="Type to search student..."
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Invoice</label>
@@ -680,12 +681,13 @@ export default function AdminFees() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Student</label>
-                  <select value={discStudentId} onChange={(e) => setDiscStudentId(e.target.value)} disabled={discAllStudents} className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm disabled:opacity-50">
-                    <option value="">Select student...</option>
-                    {students.map((s: any) => (
-                      <option key={s.student_id} value={s.student_id}>{s.first_name} {s.last_name}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={students.map((s: any) => ({ value: s.student_id, label: `${s.first_name} ${s.last_name} (${s.email})` }))}
+                    value={discStudentId}
+                    onChange={setDiscStudentId}
+                    placeholder="Type to search student..."
+                    disabled={discAllStudents}
+                  />
                   <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
                     <input type="checkbox" checked={discAllStudents} onChange={(e) => setDiscAllStudents(e.target.checked)} className="rounded border-gray-300" />
                     Apply to all students enrolled this semester
@@ -739,12 +741,13 @@ export default function AdminFees() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Student</label>
-                  <select value={penStudentId} onChange={(e) => setPenStudentId(e.target.value)} disabled={penAllStudents} className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm disabled:opacity-50">
-                    <option value="">Select student...</option>
-                    {students.map((s: any) => (
-                      <option key={s.student_id} value={s.student_id}>{s.first_name} {s.last_name}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={students.map((s: any) => ({ value: s.student_id, label: `${s.first_name} ${s.last_name} (${s.email})` }))}
+                    value={penStudentId}
+                    onChange={setPenStudentId}
+                    placeholder="Type to search student..."
+                    disabled={penAllStudents}
+                  />
                   <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
                     <input type="checkbox" checked={penAllStudents} onChange={(e) => setPenAllStudents(e.target.checked)} className="rounded border-gray-300" />
                     Apply to all students enrolled this semester

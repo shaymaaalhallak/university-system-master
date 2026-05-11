@@ -645,6 +645,47 @@ export async function runMigrations() {
       console.log("  ✓ Recreated fee_penalties table");
     }
 
+    // rooms table
+    if (!(await tableExists("rooms"))) {
+      await query(`
+        CREATE TABLE \`rooms\` (
+          \`room_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`room_code\` varchar(20) NOT NULL,
+          \`building\` varchar(100) DEFAULT NULL,
+          \`capacity\` int(11) DEFAULT 0,
+          \`created_at\` timestamp DEFAULT current_timestamp(),
+          PRIMARY KEY (\`room_id\`),
+          UNIQUE KEY \`uniq_room_code\` (\`room_code\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created rooms table");
+    }
+
+    // section_schedule table
+    if (!(await tableExists("section_schedule"))) {
+      await query(`
+        CREATE TABLE \`section_schedule\` (
+          \`schedule_id\` int(11) NOT NULL AUTO_INCREMENT,
+          \`section_id\` int(11) NOT NULL,
+          \`day_of_week\` varchar(10) NOT NULL,
+          \`start_time\` time NOT NULL,
+          \`end_time\` time NOT NULL,
+          PRIMARY KEY (\`schedule_id\`),
+          KEY \`sec_sched_section\` (\`section_id\`),
+          CONSTRAINT \`sec_sched_section_fk\` FOREIGN KEY (\`section_id\`) REFERENCES \`course_sections\` (\`section_id\`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      console.log("  ✓ Created section_schedule table");
+    }
+
+    // personal_email column for professors
+    if (!(await columnExists("professors", "personal_email"))) {
+      await query(
+        "ALTER TABLE `professors` ADD COLUMN `personal_email` varchar(255) DEFAULT NULL AFTER `user_id`",
+      );
+      console.log("  Added professors.personal_email");
+    }
+
     console.log("Migrations complete");
   } catch (err: any) {
     console.error("Migration failed:", err.message);

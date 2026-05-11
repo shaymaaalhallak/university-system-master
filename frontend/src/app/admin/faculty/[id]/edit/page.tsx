@@ -23,6 +23,7 @@ type ProfessorDetails = {
     degree_program_id: number | null;
     title: string | null;
     hire_date: string | null;
+    personal_email: string | null;
   };
 };
 
@@ -42,6 +43,7 @@ export default function EditFacultyPage() {
     degreeProgramId: "",
     title: "Professor",
     hireDate: "",
+    personalEmail: "",
   });
 
   useEffect(() => {
@@ -69,6 +71,7 @@ export default function EditFacultyPage() {
             : "",
           title: p.title || "Professor",
           hireDate: p.hire_date ? p.hire_date.slice(0, 10) : "",
+          personalEmail: p.personal_email || "",
         });
       }
     });

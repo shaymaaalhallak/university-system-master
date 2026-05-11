@@ -120,10 +120,19 @@ export default function FacultyForm({
         />
       </div>
       {autoGenerateCredentials && (
-        <p className="text-sm text-gray-600">
-          Email and password are generated automatically after creating the
-          professor account.
-        </p>
+        <>
+          <input
+            className="border border-[#DED7CB] bg-white rounded-lg p-2"
+            placeholder="Personal email (credentials will be sent here)"
+            type="email"
+            value={value.personalEmail}
+            onChange={(e) => update("personalEmail", e.target.value)}
+          />
+          <p className="text-sm text-gray-600">
+            Email and password are generated automatically. Credentials will be
+            sent to the personal email above if provided.
+          </p>
+        </>
       )}
       <button
         onClick={onSubmit}

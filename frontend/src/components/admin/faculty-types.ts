@@ -32,4 +32,5 @@ export type FacultyFormValues = {
   degreeProgramId: string;
   title: string;
   hireDate: string;
+  personalEmail: string;
 };

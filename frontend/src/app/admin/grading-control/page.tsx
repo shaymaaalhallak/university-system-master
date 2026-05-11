@@ -258,6 +258,7 @@ export default function AdminGradingControlPage() {
                       type="datetime-local"
                       value={openCloseAt}
                       onChange={(e) => setOpenCloseAt(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)}
                       className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
                     />
                   ) : (

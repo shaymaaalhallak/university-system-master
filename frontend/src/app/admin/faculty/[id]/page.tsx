@@ -33,6 +33,7 @@ type FacultyDetails = {
   };
   notifications: any[];
   activityLogs: any[];
+  rooms: any[];
 };
 
 const tabs = [
@@ -53,15 +54,21 @@ type SectionDraft = {
   semester: string;
   year: string;
   room: string;
-  schedule: string;
+  days: string[];
+  startTime: string;
+  endTime: string;
 };
+
+const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const initialDraft: SectionDraft = {
   sectionName: "",
   semester: "Fall",
   year: String(new Date().getFullYear()),
   room: "",
-  schedule: "",
+  days: [],
+  startTime: "",
+  endTime: "",
 };
 
 export default function FacultyDetailsPage() {
@@ -77,6 +84,8 @@ export default function FacultyDetailsPage() {
   const [eligibilityCourseId, setEligibilityCourseId] = useState("");
   const [eligibilityType, setEligibilityType] = useState("secondary");
   const [actionError, setActionError] = useState("");
+  const [classSearchName, setClassSearchName] = useState("");
+  const [classSearchCourse, setClassSearchCourse] = useState("");
   const [perfDetails, setPerfDetails] = useState<any[]>([]);
   const load = async () => {
     setLoading(true);
@@ -250,7 +259,7 @@ export default function FacultyDetailsPage() {
   const updateDraft = (
     courseId: number,
     key: keyof SectionDraft,
-    value: string,
+    value: any,
   ) => {
     setSectionDrafts((current) => ({
       ...current,
@@ -261,10 +270,22 @@ export default function FacultyDetailsPage() {
     }));
   };
 
+  const toggleDay = (courseId: number, day: string) => {
+    const draft = draftFor(courseId);
+    const days = draft.days.includes(day)
+      ? draft.days.filter((d) => d !== day)
+      : [...draft.days, day];
+    updateDraft(courseId, "days", days);
+  };
+
   const addSection = async (courseId: number) => {
     const draft = draftFor(courseId);
     if (!draft.sectionName || !draft.semester || !draft.year) {
       alert("Section name, semester, and year are required.");
+      return;
+    }
+    if (draft.days.length === 0 || !draft.startTime || !draft.endTime) {
+      alert("Please select at least one day and set start/end times.");
       return;
     }
     setActionError("");
@@ -275,7 +296,9 @@ export default function FacultyDetailsPage() {
         semester: draft.semester,
         year: Number(draft.year),
         room: draft.room,
-        schedule: draft.schedule,
+        days: draft.days,
+        startTime: draft.startTime,
+        endTime: draft.endTime,
       });
 
       setSectionDrafts((current) => ({ ...current, [courseId]: initialDraft }));
@@ -289,8 +312,76 @@ export default function FacultyDetailsPage() {
   };
 
   const removeSection = async (sectionId: number) => {
-    await api.delete(`/users/professors/${id}/sections/${sectionId}`);
-    await load();
+    try {
+      await api.delete(`/users/professors/${id}/sections/${sectionId}`);
+      await load();
+    } catch (err: any) {
+      setActionError(err?.response?.data?.message || "Failed to delete section");
+    }
+  };
+
+  const [editingSection, setEditingSection] = useState<any | null>(null);
+  const [editDraft, setEditDraft] = useState<SectionDraft>(initialDraft);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const openEditModal = (section: any) => {
+    // Parse existing schedule_time (e.g. "Mon,Wed,Fri 09:00-10:30") into days/start/end
+    const sched = section.schedule_time || section.schedule || "";
+    const match = sched.match(/^([A-Za-z,]+)\s+(\d{2}:\d{2})-(\d{2}:\d{2})$/);
+    let days: string[] = [];
+    let startTime = "";
+    let endTime = "";
+    if (match) {
+      const abbrToFull: Record<string, string> = {
+        Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday",
+        Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
+      };
+      days = match[1].split(",").map((d: string) => abbrToFull[d.trim()] || d.trim());
+      startTime = match[2];
+      endTime = match[3];
+    }
+    setEditDraft({
+      sectionName: section.section_name || "",
+      semester: section.semester || "Fall",
+      year: String(section.year || new Date().getFullYear()),
+      room: section.room || section.room_number || "",
+      days,
+      startTime,
+      endTime,
+    });
+    setEditingSection(section);
+  };
+
+  const saveEditSection = async () => {
+    if (!editingSection) return;
+    const d = editDraft;
+    if (!d.sectionName || !d.semester || !d.year) {
+      alert("Section name, semester, and year are required.");
+      return;
+    }
+    if (d.days.length === 0 || !d.startTime || !d.endTime) {
+      alert("Please select at least one day and set start/end times.");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await api.put(`/users/professors/${id}/sections/${editingSection.section_id}`, {
+        courseId: editingSection.course_id,
+        sectionName: d.sectionName,
+        semester: d.semester,
+        year: Number(d.year),
+        room: d.room,
+        days: d.days,
+        startTime: d.startTime,
+        endTime: d.endTime,
+      });
+      setEditingSection(null);
+      await load();
+    } catch (err: any) {
+      setActionError(err?.response?.data?.message || "Failed to update section");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   if (loading) return <div className="p-6">Loading professor details...</div>;
@@ -464,57 +555,109 @@ export default function FacultyDetailsPage() {
                           s.year,
                           s.room || "-",
                           s.schedule_time || s.schedule || "-",
-                          <button
-                            key={`del-${s.section_id}`}
-                            className="text-red-700"
-                            onClick={() => removeSection(Number(s.section_id))}
-                          >
-                            X
-                          </button>,
+                          <div key={`act-${s.section_id}`} className="flex gap-2">
+                            <button
+                              className="text-blue-600 hover:text-blue-800"
+                              onClick={() => openEditModal(s)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="text-red-700 hover:text-red-900"
+                              onClick={() => removeSection(Number(s.section_id))}
+                            >
+                              X
+                            </button>
+                          </div>,
                         ])}
                     />
 
-                    <div className="grid gap-2 md:grid-cols-5">
-                      <input
-                        className="border rounded-lg p-2"
-                        placeholder="Section Name (A)"
-                        value={draft.sectionName}
-                        onChange={(e) =>
-                          updateDraft(courseId, "sectionName", e.target.value)
-                        }
-                      />
-                      <input
-                        className="border rounded-lg p-2"
-                        placeholder="Semester"
-                        value={draft.semester}
-                        onChange={(e) =>
-                          updateDraft(courseId, "semester", e.target.value)
-                        }
-                      />
-                      <input
-                        className="border rounded-lg p-2"
-                        placeholder="Year"
-                        value={draft.year}
-                        onChange={(e) =>
-                          updateDraft(courseId, "year", e.target.value)
-                        }
-                      />
-                      <input
-                        className="border rounded-lg p-2"
-                        placeholder="Room"
-                        value={draft.room}
-                        onChange={(e) =>
-                          updateDraft(courseId, "room", e.target.value)
-                        }
-                      />
-                      <input
-                        className="border rounded-lg p-2"
-                        placeholder="Schedule"
-                        value={draft.schedule}
-                        onChange={(e) =>
-                          updateDraft(courseId, "schedule", e.target.value)
-                        }
-                      />
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Section</label>
+                        <select
+                          className="border rounded-lg p-2 w-full"
+                          value={draft.sectionName}
+                          onChange={(e) => updateDraft(courseId, "sectionName", e.target.value)}
+                        >
+                          <option value="">Select Section</option>
+                          {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => (
+                            <option key={l} value={l}>{l}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Semester</label>
+                        <select
+                          className="border rounded-lg p-2 w-full"
+                          value={draft.semester}
+                          onChange={(e) => updateDraft(courseId, "semester", e.target.value)}
+                        >
+                          <option value="Fall">Fall</option>
+                          <option value="Spring">Spring</option>
+                          <option value="Summer">Summer</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Year</label>
+                        <input
+                          className="border rounded-lg p-2 w-full"
+                          placeholder="Year"
+                          value={draft.year}
+                          onChange={(e) => updateDraft(courseId, "year", e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Room</label>
+                        <select
+                          className="border rounded-lg p-2 w-full"
+                          value={draft.room}
+                          onChange={(e) => updateDraft(courseId, "room", e.target.value)}
+                        >
+                          <option value="">Select Room</option>
+                          {(data.rooms || []).map((r: any) => (
+                            <option key={r.room_id} value={r.room_code}>
+                              {r.room_code}{r.building ? ` (${r.building})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Days</label>
+                        <div className="flex flex-wrap gap-2">
+                          {DAYS_OF_WEEK.map((day) => (
+                            <label key={day} className="flex items-center gap-1 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={draft.days.includes(day)}
+                                onChange={() => toggleDay(courseId, day)}
+                                className="rounded border-gray-300"
+                              />
+                              {day.substring(0, 3)}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                        <input
+                          type="time"
+                          className="border rounded-lg p-2"
+                          value={draft.startTime}
+                          onChange={(e) => updateDraft(courseId, "startTime", e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                        <input
+                          type="time"
+                          className="border rounded-lg p-2"
+                          value={draft.endTime}
+                          onChange={(e) => updateDraft(courseId, "endTime", e.target.value)}
+                        />
+                      </div>
                     </div>
                     <button
                       className="bg-[#7A263A] text-white rounded-lg px-3 py-2 hover:bg-[#631F2F]"
@@ -591,15 +734,42 @@ export default function FacultyDetailsPage() {
           )}
 
           {tab === "Students in Classes" && (
-            <SimpleTable
-              headers={["Student", "Email", "Course", "Enrollment status"]}
-              rows={(data.studentsInClasses || []).map((s) => [
-                `${s.first_name} ${s.last_name}`,
-                s.email,
-                `${s.course_code} ${s.course_title}`,
-                s.status,
-              ])}
-            />
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Search by student name..."
+                  value={classSearchName}
+                  onChange={(e) => setClassSearchName(e.target.value)}
+                  className="border border-[#DED7CB] rounded-lg px-3 py-2 text-sm flex-1"
+                />
+                <input
+                  type="text"
+                  placeholder="Search by course code..."
+                  value={classSearchCourse}
+                  onChange={(e) => setClassSearchCourse(e.target.value)}
+                  className="border border-[#DED7CB] rounded-lg px-3 py-2 text-sm flex-1"
+                />
+              </div>
+              <SimpleTable
+                headers={["Student", "Email", "Course", "Enrollment status"]}
+                rows={(data.studentsInClasses || [])
+                  .filter((s: any) => {
+                    const name = (`${s.first_name} ${s.last_name}`).toLowerCase();
+                    const code = `${s.course_code} ${s.course_title}`.toLowerCase();
+                    return (
+                      (!classSearchName || name.includes(classSearchName.toLowerCase())) &&
+                      (!classSearchCourse || code.includes(classSearchCourse.toLowerCase()))
+                    );
+                  })
+                  .map((s: any) => [
+                    `${s.first_name} ${s.last_name}`,
+                    s.email,
+                    `${s.course_code} ${s.course_title}`,
+                    s.status,
+                  ])}
+              />
+            </div>
           )}
 
           {tab === "Assignments & Exams" && (
@@ -800,6 +970,77 @@ export default function FacultyDetailsPage() {
           )}
         </div>
       </div>
+
+      {/* Edit Section Modal */}
+      {editingSection && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingSection(null)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Section</h3>
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Section</label>
+                  <select className="border rounded-lg p-2 w-full" value={editDraft.sectionName} onChange={(e) => setEditDraft({...editDraft, sectionName: e.target.value})}>
+                    <option value="">Select Section</option>
+                    {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Semester</label>
+                  <select className="border rounded-lg p-2 w-full" value={editDraft.semester} onChange={(e) => setEditDraft({...editDraft, semester: e.target.value})}>
+                    <option value="Fall">Fall</option>
+                    <option value="Spring">Spring</option>
+                    <option value="Summer">Summer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Year</label>
+                  <input className="border rounded-lg p-2 w-full" value={editDraft.year} onChange={(e) => setEditDraft({...editDraft, year: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Room</label>
+                  <select className="border rounded-lg p-2 w-full" value={editDraft.room} onChange={(e) => setEditDraft({...editDraft, room: e.target.value})}>
+                    <option value="">Select Room</option>
+                    {(data?.rooms || []).map((r: any) => (
+                      <option key={r.room_id} value={r.room_code}>{r.room_code}{r.building ? ` (${r.building})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Days</label>
+                  <div className="flex flex-wrap gap-2">
+                    {DAYS_OF_WEEK.map((day) => (
+                      <label key={day} className="flex items-center gap-1 text-sm">
+                        <input type="checkbox" checked={editDraft.days.includes(day)} onChange={() => {
+                          const days = editDraft.days.includes(day) ? editDraft.days.filter((d) => d !== day) : [...editDraft.days, day];
+                          setEditDraft({...editDraft, days});
+                        }} className="rounded border-gray-300" />
+                        {day.substring(0, 3)}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                  <input type="time" className="border rounded-lg p-2" value={editDraft.startTime} onChange={(e) => setEditDraft({...editDraft, startTime: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                  <input type="time" className="border rounded-lg p-2" value={editDraft.endTime} onChange={(e) => setEditDraft({...editDraft, endTime: e.target.value})} />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setEditingSection(null)} className="flex-1 px-4 py-2 border border-[#DED7CB] rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button onClick={saveEditSection} disabled={savingEdit} className="flex-1 px-4 py-2 bg-[#7A263A] text-white rounded-lg text-sm hover:bg-[#6A1F31] disabled:opacity-50">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

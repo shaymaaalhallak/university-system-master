@@ -31,6 +31,10 @@ export default function AdminFeeConfiguration() {
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [effectiveTo, setEffectiveTo] = useState("");
 
+  const today = new Date();
+  const minFrom = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate()).toISOString().split("T")[0];
+  const maxFrom = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate()).toISOString().split("T")[0];
+
   useEffect(() => {
     if (!isLoading && !user) router.push("/login");
   }, [user, isLoading, router]);
@@ -157,7 +161,12 @@ export default function AdminFeeConfiguration() {
               <input
                 type="date"
                 value={effectiveFrom}
-                onChange={(e) => setEffectiveFrom(e.target.value)}
+                onChange={(e) => {
+                  setEffectiveFrom(e.target.value);
+                  if (effectiveTo && e.target.value >= effectiveTo) setEffectiveTo("");
+                }}
+                min={minFrom}
+                max={maxFrom}
                 className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm focus:ring-2 focus:ring-[#7A263A] focus:border-[#7A263A]"
               />
             </div>
@@ -167,6 +176,7 @@ export default function AdminFeeConfiguration() {
                 type="date"
                 value={effectiveTo}
                 onChange={(e) => setEffectiveTo(e.target.value)}
+                min={effectiveFrom || minFrom}
                 className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm focus:ring-2 focus:ring-[#7A263A] focus:border-[#7A263A]"
               />
             </div>

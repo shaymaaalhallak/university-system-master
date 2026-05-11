@@ -484,6 +484,10 @@ router.get(
            LIMIT 100`,
           [id],
         ),
+        safeList(
+          "SELECT room_id, room_code, building, capacity FROM rooms ORDER BY building, room_code",
+          [],
+        ),
       ]);
 
       return res.json({
@@ -864,6 +868,7 @@ router.post(
         degreeProgramId,
         title,
         hireDate,
+        personalEmail,
       } = req.body;
 
       if (!firstName || !lastName || !degreeProgramId) {
@@ -914,15 +919,35 @@ router.post(
       const userId = userInsert.insertId;
 
       const profileInsert: any = await query(
-        "INSERT INTO professors (user_id, department_id, degree_program_id, title, hire_date) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO professors (user_id, personal_email, department_id, degree_program_id, title, hire_date) VALUES (?, ?, ?, ?, ?, ?)",
         [
           userId,
+          personalEmail || null,
           departmentId || null,
           degreeProgramId,
           title || "Professor",
           hireDate || new Date(),
         ],
       );
+
+      // Try to email credentials to personal email
+      if (personalEmail) {
+        const { sendEmail } = await import("../utils/email");
+        const emailSent = await sendEmail(
+          personalEmail,
+          "Your University Account Credentials",
+          `<p>Dear ${firstName} ${lastName},</p>
+<p>Your university account has been created.</p>
+<p><strong>Email:</strong> ${generatedEmail}<br/>
+<strong>Password:</strong> ${rawPassword}</p>
+<p>You will be required to change your password on first login.</p>`,
+        );
+        if (!emailSent) {
+          console.warn(
+            `[PROFESSOR] Could not email credentials to ${personalEmail}`,
+          );
+        }
+      }
 
       return res.status(201).json({
         success: true,
@@ -932,6 +957,7 @@ router.post(
           professorId: profileInsert.insertId,
           generatedEmail,
           generatedPassword: rawPassword,
+          emailSent: personalEmail ? true : false,
         },
       });
     } catch (error) {
@@ -981,7 +1007,7 @@ router.get(
         : "";
       const profile = await queryFirst(
         `SELECT u.user_id, u.first_name, u.last_name, u.email, u.phone, u.status,
-                           p.professor_id, p.department_id, p.degree_program_id, p.title, p.hire_date,
+                           p.professor_id, p.personal_email, p.department_id, p.degree_program_id, p.title, p.hire_date,
               ${departmentSelect}
               ${degreeSelect}
        FROM users u
@@ -1016,6 +1042,7 @@ router.get(
         performance,
         notifications,
         activityLogs,
+        rooms,
       ] = await Promise.all([
         safeList(
           `SELECT cs.section_id, cs.course_id,
@@ -1162,6 +1189,7 @@ ORDER BY cs.year DESC, cs.semester`,
           },
           notifications,
           activityLogs,
+          rooms,
         },
       });
     } catch (error) {
@@ -1377,7 +1405,7 @@ router.post(
           .json({ success: false, message: "Professor profile not found" });
       }
 
-      const { courseId, sectionName, semester, year, room, schedule } =
+      const { courseId, sectionName, semester, year, room, schedule, days, startTime, endTime } =
         req.body;
       if (!courseId || !sectionName || !semester || !year) {
         return res.status(400).json({
@@ -1385,6 +1413,18 @@ router.post(
           message: "courseId, sectionName, semester and year are required",
         });
       }
+
+      // Build schedule_time string from days+startTime+endTime if provided
+      let scheduleStr = schedule;
+      if (days && Array.isArray(days) && days.length > 0 && startTime && endTime) {
+        const dayAbbr: Record<string, string> = {
+          Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed",
+          Thursday: "Thu", Friday: "Fri", Saturday: "Sat", Sunday: "Sun",
+        };
+        const abbrs = days.map((d: string) => dayAbbr[d] || d.substring(0, 3));
+        scheduleStr = abbrs.join(",") + " " + startTime + "-" + endTime;
+      }
+
       const profile = await queryFirst<{ department_id: number | null }>(
         "SELECT department_id FROM professors WHERE professor_id = ?",
         [professor.professor_id],
@@ -1458,16 +1498,29 @@ router.post(
 
       if (hasScheduleTimeColumn) {
         columns.push("schedule_time");
-        values.push(schedule || null);
+        values.push(scheduleStr || null);
       } else if (hasScheduleColumn) {
         columns.push("schedule");
-        values.push(schedule || null);
+        values.push(scheduleStr || null);
       }
 
       const insertSql = `INSERT INTO course_sections (${columns.join(", ")}) VALUES (${columns
         .map(() => "?")
         .join(", ")})`;
       const insert: any = await query(insertSql, values);
+
+      // Insert into section_schedule if days+time provided
+      if (days && Array.isArray(days) && days.length > 0 && startTime && endTime) {
+        const hasSectionSchedTable = await tableExists("section_schedule");
+        if (hasSectionSchedTable) {
+          for (const day of days) {
+            await query(
+              "INSERT INTO section_schedule (section_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+              [insert.insertId, day, startTime, endTime],
+            );
+          }
+        }
+      }
 
       return res
         .status(201)
@@ -1481,6 +1534,79 @@ router.post(
     }
   },
 );
+
+// PUT /api/users/professors/:id/sections/:sectionId — Update section
+router.put(
+  "/professors/:id/sections/:sectionId",
+  verifyToken,
+  requireRole("admin"),
+  async (req: Request, res: Response) => {
+    try {
+      const professor = await getProfessorByUserId(Number(req.params.id));
+      if (!professor) {
+        return res.status(404).json({ success: false, message: "Professor profile not found" });
+      }
+
+      const { courseId, sectionName, semester, year, room, days, startTime, endTime } = req.body;
+      if (!courseId || !sectionName || !semester || !year) {
+        return res.status(400).json({ success: false, message: "courseId, sectionName, semester and year are required" });
+      }
+
+      // Build schedule string from days+time
+      const dayAbbr: Record<string, string> = {
+        Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed",
+        Thursday: "Thu", Friday: "Fri", Saturday: "Sat", Sunday: "Sun",
+      };
+      let scheduleStr = null;
+      if (days && Array.isArray(days) && days.length > 0 && startTime && endTime) {
+        const abbrs = days.map((d: string) => dayAbbr[d] || d.substring(0, 3));
+        scheduleStr = abbrs.join(",") + " " + startTime + "-" + endTime;
+      }
+
+      const hasSectionNameCol = await columnExists("course_sections", "section_name");
+      const hasRoomNumberCol = await columnExists("course_sections", "room_number");
+      const hasRoomCol = await columnExists("course_sections", "room");
+      const hasSchedTimeCol = await columnExists("course_sections", "schedule_time");
+      const hasSchedCol = await columnExists("course_sections", "schedule");
+
+      const sets: string[] = [];
+      const vals: any[] = [];
+      if (hasSectionNameCol) { sets.push("section_name = ?"); vals.push(sectionName); }
+      sets.push("semester = ?", "year = ?");
+      vals.push(semester, year);
+      if (hasRoomNumberCol) { sets.push("room_number = ?"); vals.push(room || null); }
+      else if (hasRoomCol) { sets.push("room = ?"); vals.push(room || null); }
+      if (hasSchedTimeCol) { sets.push("schedule_time = ?"); vals.push(scheduleStr); }
+      else if (hasSchedCol) { sets.push("schedule = ?"); vals.push(scheduleStr); }
+
+      vals.push(req.params.sectionId, professor.professor_id);
+      await query(
+        `UPDATE course_sections SET ${sets.join(", ")} WHERE section_id = ? AND professor_id = ?`,
+        vals,
+      );
+
+      // Update section_schedule: delete old, insert new
+      const hasSchedTable = await tableExists("section_schedule");
+      if (hasSchedTable) {
+        await query("DELETE FROM section_schedule WHERE section_id = ?", [req.params.sectionId]);
+        if (days && Array.isArray(days) && days.length > 0 && startTime && endTime) {
+          for (const day of days) {
+            await query(
+              "INSERT INTO section_schedule (section_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)",
+              [req.params.sectionId, day, startTime, endTime],
+            );
+          }
+        }
+      }
+
+      return res.json({ success: true, message: "Section updated" });
+    } catch (error: any) {
+      console.error("Failed to update professor section:", error);
+      return res.status(500).json({ success: false, message: error?.sqlMessage || "Server error" });
+    }
+  },
+);
+
 router.delete(
   "/professors/:id/sections/:sectionId",
   verifyToken,
