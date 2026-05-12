@@ -105,12 +105,17 @@ export default function FacultyForm({
               </option>
             ))}
         </select>
-        <input
+        <select
           className="border border-[#DED7CB] bg-white rounded-lg p-2"
-          placeholder="Title"
           value={value.title}
           onChange={(e) => update("title", e.target.value)}
-        />
+        >
+          <option value="">Select Title</option>
+          <option value="Professor">Professor</option>
+          <option value="Doctor">Doctor</option>
+          <option value="Instructor">Instructor</option>
+          <option value="Lecturer">Lecturer</option>
+        </select>
         <input
           className="border border-[#DED7CB] bg-white rounded-lg p-2"
           placeholder="Hire date"

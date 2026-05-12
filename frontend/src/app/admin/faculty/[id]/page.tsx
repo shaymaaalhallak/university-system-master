@@ -325,20 +325,37 @@ export default function FacultyDetailsPage() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const openEditModal = (section: any) => {
-    // Parse existing schedule_time (e.g. "Mon,Wed,Fri 09:00-10:30") into days/start/end
     const sched = section.schedule_time || section.schedule || "";
-    const match = sched.match(/^([A-Za-z,]+)\s+(\d{2}:\d{2})-(\d{2}:\d{2})$/);
-    let days: string[] = [];
+    // Parse "Mon 09:00-11:00, Wed 09:00-11:00, Fri 09:00-11:00" or "Mon,Wed,Fri 09:00-11:00"
+    const abbrToFull: Record<string, string> = {
+      Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday",
+      Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
+    };
+    const days: string[] = [];
     let startTime = "";
     let endTime = "";
-    if (match) {
-      const abbrToFull: Record<string, string> = {
-        Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday",
-        Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
-      };
-      days = match[1].split(",").map((d: string) => abbrToFull[d.trim()] || d.trim());
-      startTime = match[2];
-      endTime = match[3];
+    // Try old format first: "Mon,Wed,Fri 09:00-11:00"
+    const oldMatch = sched.match(/^([A-Za-z,]+)\s+(\d{2}:\d{2})-(\d{2}:\d{2})$/);
+    if (oldMatch) {
+      const dayAbbrs = oldMatch[1].split(",");
+      dayAbbrs.forEach((d: string) => {
+        const full = abbrToFull[d.trim()];
+        if (full) days.push(full);
+      });
+      startTime = oldMatch[2];
+      endTime = oldMatch[3];
+    } else {
+      // New format: "Mon 09:00-11:00, Wed 09:00-11:00"
+      const entries = sched.split(",").map((s: string) => s.trim());
+      for (const entry of entries) {
+        const m = entry.match(/^([A-Za-z]+)\s+(\d{2}:\d{2})-(\d{2}:\d{2})$/);
+        if (m) {
+          const full = abbrToFull[m[1]];
+          if (full && !days.includes(full)) days.push(full);
+          startTime = m[2];
+          endTime = m[3];
+        }
+      }
     }
     setEditDraft({
       sectionName: section.section_name || "",
@@ -616,8 +633,8 @@ export default function FacultyDetailsPage() {
                         >
                           <option value="">Select Room</option>
                           {(data.rooms || []).map((r: any) => (
-                            <option key={r.room_id} value={r.room_code}>
-                              {r.room_code}{r.building ? ` (${r.building})` : ""}
+                            <option key={r.room_id} value={r.room_number}>
+                              {r.room_number}{r.building ? ` (${r.building})` : ""}
                             </option>
                           ))}
                         </select>
@@ -1004,7 +1021,7 @@ export default function FacultyDetailsPage() {
                   <select className="border rounded-lg p-2 w-full" value={editDraft.room} onChange={(e) => setEditDraft({...editDraft, room: e.target.value})}>
                     <option value="">Select Room</option>
                     {(data?.rooms || []).map((r: any) => (
-                      <option key={r.room_id} value={r.room_code}>{r.room_code}{r.building ? ` (${r.building})` : ""}</option>
+                      <option key={r.room_id} value={r.room_number}>{r.room_number}{r.building ? ` (${r.building})` : ""}</option>
                     ))}
                   </select>
                 </div>

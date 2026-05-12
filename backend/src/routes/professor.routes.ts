@@ -56,7 +56,9 @@ router.get("/my-sections", verifyToken, requireRole("professor"), async (req: Re
     );
 
     const rows = await query(
-      `SELECT cs.section_id, cs.course_id, cs.semester, cs.year, cs.room_number, cs.schedule_time,
+      `SELECT cs.section_id, cs.course_id, cs.semester, cs.year,
+              COALESCE(r.room_number, '') AS room_number,
+              COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
               c.course_code, c.course_title, c.credits,
               (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled_count,
               COALESCE(gec.is_enabled, 0) AS grade_entry_enabled,
@@ -65,6 +67,7 @@ router.get("/my-sections", verifyToken, requireRole("professor"), async (req: Re
        FROM course_sections cs
        JOIN professors p ON cs.professor_id = p.professor_id
        JOIN courses c ON cs.course_id = c.course_id
+       LEFT JOIN rooms r ON cs.room_id = r.room_id
        LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id
        WHERE p.user_id = ?
        ORDER BY cs.year DESC, cs.semester, c.course_code`,

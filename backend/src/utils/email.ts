@@ -1,4 +1,7 @@
 import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -16,10 +19,16 @@ function getTransporter(): nodemailer.Transporter | null {
   }
 
   transporter = nodemailer.createTransport({
-    host,
+    host: host,
     port: Number(port),
-    secure: Number(port) === 465,
-    auth: { user, pass },
+    secure: Number(port) === 465, // true only for 465, false for 587
+    auth: {
+      user,
+      pass,
+    },
+    tls: {
+      rejectUnauthorized: false, // helps avoid TLS issues in dev
+    },
   });
 
   return transporter;
@@ -35,15 +44,16 @@ export async function sendEmail(
 
   try {
     await t.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@university.edu",
+      from: `"University App" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
       to,
       subject,
       html,
     });
-    console.log(`[EMAIL] Sent to ${to}: "${subject}"`);
+
+    console.log(`[EMAIL] Sent successfully to ${to}: "${subject}"`);
     return true;
   } catch (err: any) {
-    console.error(`[EMAIL] Failed to send to ${to}:`, err.message);
+    console.error("[EMAIL] Failed to send email:", err?.message || err);
     return false;
   }
 }

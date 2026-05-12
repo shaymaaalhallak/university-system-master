@@ -142,6 +142,24 @@ export default function FacultyListPage() {
                     >
                       ✏️ Edit
                     </Link>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm(`Delete professor ${r.first_name} ${r.last_name}? This action cannot be undone.`)) return;
+                        try {
+                          const res = await api.delete<ApiResponse<null>>(`/users/professors/${r.user_id}`);
+                          if (res.success) {
+                            setRows((prev) => prev.filter((x) => x.user_id !== r.user_id));
+                          } else {
+                            alert(res.message || "Failed to delete");
+                          }
+                        } catch {
+                          alert("Failed to delete professor");
+                        }
+                      }}
+                      className="text-red-600 hover:text-red-800"
+                    >
+                      🗑 Delete
+                    </button>
                   </td>
                 </tr>
               ))}

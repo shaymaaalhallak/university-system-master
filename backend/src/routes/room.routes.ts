@@ -11,7 +11,7 @@ const query = (sql: string, params: any[] = []): Promise<any> =>
 
 router.get("/", verifyToken, async (req: Request, res: Response) => {
   try {
-    const rows = await query("SELECT room_id, room_code, building, capacity FROM rooms ORDER BY building, room_code");
+    const rows = await query("SELECT room_id, room_number, building, capacity FROM rooms ORDER BY building, room_number");
     return res.json({ success: true, data: rows });
   } catch (error) {
     console.error("Failed to fetch rooms:", error);
@@ -21,13 +21,13 @@ router.get("/", verifyToken, async (req: Request, res: Response) => {
 
 router.post("/", verifyToken, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { room_code, building, capacity } = req.body;
-    if (!room_code) {
-      return res.status(400).json({ success: false, message: "room_code is required" });
+    const { room_number, building, capacity } = req.body;
+    if (!room_number) {
+      return res.status(400).json({ success: false, message: "room_number is required" });
     }
     const result: any = await query(
-      "INSERT INTO rooms (room_code, building, capacity) VALUES (?, ?, ?)",
-      [room_code, building || null, capacity || 0]
+      "INSERT INTO rooms (room_number, building, capacity) VALUES (?, ?, ?)",
+      [room_number, building || null, capacity || 0]
     );
     return res.status(201).json({ success: true, data: { room_id: result.insertId } });
   } catch (error: any) {

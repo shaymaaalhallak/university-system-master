@@ -67,7 +67,16 @@ export default function ForceChangePasswordPage() {
         onSubmit={onSubmit}
         className="w-full max-w-md rounded-xl border bg-white p-6 shadow-sm space-y-4"
       >
-        <h1 className="text-xl font-bold text-gray-900">Change Password</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-gray-900">Change Password</h1>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="text-sm text-gray-500 hover:text-gray-700 border border-[#DED7CB] rounded-lg px-3 py-1"
+          >
+            ← Go Back
+          </button>
+        </div>
         <p className="text-sm text-gray-600">
           For security, you must change your temporary password before using the
           dashboard.

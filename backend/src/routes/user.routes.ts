@@ -485,7 +485,7 @@ router.get(
           [id],
         ),
         safeList(
-          "SELECT room_id, room_code, building, capacity FROM rooms ORDER BY building, room_code",
+          "SELECT room_id, room_number, building, capacity FROM rooms ORDER BY building, room_number",
           [],
         ),
       ]);
@@ -980,19 +980,8 @@ router.get(
         "course_sections",
         "section_name",
       );
-      const hasScheduleTimeColumn = await columnExists(
-        "course_sections",
-        "schedule_time",
-      );
-      const hasRoomNumberColumn = await columnExists(
-        "course_sections",
-        "room_number",
-      );
-      const hasScheduleColumn = await columnExists(
-        "course_sections",
-        "schedule",
-      );
-      const hasRoomColumn = await columnExists("course_sections", "room");
+      const hasRoomIdColumn = await columnExists("course_sections", "room_id");
+      const hasSectionSchedTable = await tableExists("section_schedule");
       const departmentSelect = hasDepartmentsTable
         ? "d.department_name"
         : "NULL AS department_name";
@@ -1048,12 +1037,13 @@ router.get(
           `SELECT cs.section_id, cs.course_id,
           ${hasSectionNameColumn ? "COALESCE(cs.section_name, CONCAT('S', cs.section_id))" : "CONCAT('S', cs.section_id)"} AS section_name,
       cs.semester, cs.year,
-      ${hasRoomNumberColumn ? "cs.room_number" : hasRoomColumn ? "cs.room" : "NULL"} AS room,
-      ${hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL"} AS schedule,
-      ${hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL"} AS schedule_time,
+      ${hasRoomIdColumn ? "COALESCE(r.room_number, '')" : "''"} AS room,
+      ${hasSectionSchedTable ? "COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '')" : "''"} AS schedule,
+      ${hasSectionSchedTable ? "COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '')" : "''"} AS schedule_time,
       c.course_code, c.course_title
          FROM course_sections cs
          JOIN courses c ON cs.course_id = c.course_id
+         ${hasRoomIdColumn ? "LEFT JOIN rooms r ON cs.room_id = r.room_id" : ""}
          WHERE cs.professor_id = ?
          ORDER BY cs.year DESC, cs.semester`,
           [professorId],
@@ -1100,11 +1090,12 @@ router.get(
         ),
         safeList(
           `SELECT cs.section_id,
-       ${hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL"} AS schedule,
-       ${hasRoomNumberColumn ? "cs.room_number" : hasRoomColumn ? "cs.room" : "NULL"} AS room,
+       ${hasSectionSchedTable ? "COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '')" : "''"} AS schedule,
+       ${hasRoomIdColumn ? "COALESCE(r.room_number, '')" : "''"} AS room,
        cs.semester, cs.year, c.course_code
 FROM course_sections cs
 JOIN courses c ON cs.course_id = c.course_id
+${hasRoomIdColumn ? "LEFT JOIN rooms r ON cs.room_id = r.room_id" : ""}
 WHERE cs.professor_id = ?
 ORDER BY cs.year DESC, cs.semester`,
           [professorId],
@@ -1135,14 +1126,17 @@ ORDER BY cs.year DESC, cs.semester`,
           console.log("[FACULTY-DETAILS] Assignments:", assignments.length, "Exams:", exams.length);
           return { assignments, exams };
         }),
-        safeList(
-          `SELECT cs.section_id, cs.schedule, cs.room, cs.semester, cs.year, c.course_code
-         FROM course_sections cs
-         JOIN courses c ON cs.course_id = c.course_id
-         WHERE cs.professor_id = ?
-         ORDER BY cs.year DESC, cs.semester`,
-          [professorId],
-        ),
+         safeList(
+           `SELECT cs.section_id, cs.semester, cs.year, c.course_code,
+                   COALESCE(r.room_number, '') AS room,
+                   COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule
+          FROM course_sections cs
+          JOIN courses c ON cs.course_id = c.course_id
+          LEFT JOIN rooms r ON cs.room_id = r.room_id
+          WHERE cs.professor_id = ?
+          ORDER BY cs.year DESC, cs.semester`,
+           [professorId],
+         ),
         safeList(
           `SELECT
             AVG(g.total_score) AS average_grade,
@@ -1161,15 +1155,19 @@ ORDER BY cs.year DESC, cs.semester`,
          ORDER BY created_at DESC`,
           [id],
         ),
-        safeList(
-          `SELECT log_id, action, ip_address, user_agent, created_at
-         FROM audit_logs
-         WHERE user_id = ?
-         ORDER BY created_at DESC
-         LIMIT 100`,
-          [id],
-        ),
-      ]);
+         safeList(
+           `SELECT log_id, action, ip_address, user_agent, created_at
+          FROM audit_logs
+          WHERE user_id = ?
+          ORDER BY created_at DESC
+          LIMIT 100`,
+           [id],
+         ),
+         safeList(
+           "SELECT room_id, room_number, building, capacity FROM rooms ORDER BY building, room_number",
+           [],
+         ),
+       ]);
 
       return res.json({
         success: true,
@@ -1223,13 +1221,12 @@ router.get(
       const professorId = profRow[0].professor_id;
       console.log("[PERF] Resolved user_id", userId, "to professor_id", professorId);
 
-      const hasRoomColumn = await columnExists("course_sections", "room");
-      const hasRoomNumberColumn = await columnExists("course_sections", "room_number");
-      const roomCol = hasRoomNumberColumn ? "cs.room_number" : hasRoomColumn ? "cs.room" : "NULL";
-
-      const hasScheduleColumn = await columnExists("course_sections", "schedule");
-      const hasScheduleTimeColumn = await columnExists("course_sections", "schedule_time");
-      const scheduleCol = hasScheduleTimeColumn ? "cs.schedule_time" : hasScheduleColumn ? "cs.schedule" : "NULL";
+      const hasRoomIdColumn = await columnExists("course_sections", "room_id");
+      const roomCol = hasRoomIdColumn ? "COALESCE(r.room_number, '')" : "''";
+      const hasSectionSchedTable = await tableExists("section_schedule");
+      const scheduleCol = hasSectionSchedTable
+        ? "COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '')"
+        : "''";
 
       const hasSectionNameColumn = await columnExists("course_sections", "section_name");
       const sectionNameCol = hasSectionNameColumn ? "cs.section_name" : "CONCAT('S', cs.section_id)";
@@ -1239,6 +1236,7 @@ router.get(
                 ${sectionNameCol} AS section_name, ${roomCol} AS room, ${scheduleCol} AS schedule
          FROM course_sections cs
          JOIN courses c ON cs.course_id = c.course_id
+         ${hasRoomIdColumn ? "LEFT JOIN rooms r ON cs.room_id = r.room_id" : ""}
          WHERE cs.professor_id = ?
          ORDER BY c.course_code, cs.semester`,
         [professorId],
@@ -1391,6 +1389,33 @@ router.put(
   },
 );
 
+// DELETE /api/users/professors/:id
+router.delete(
+  "/professors/:id",
+  verifyToken,
+  requireRole("admin"),
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = await queryFirst<{ user_id: number }>(
+        "SELECT user_id FROM users WHERE user_id = ? AND role = 'professor'",
+        [id],
+      );
+      if (!user) {
+        return res.status(404).json({ success: false, message: "Professor not found" });
+      }
+      await query("UPDATE course_sections SET professor_id = NULL WHERE professor_id = (SELECT professor_id FROM professors WHERE user_id = ?)", [id]);
+      await query("DELETE FROM professor_course_eligibility WHERE professor_id = (SELECT professor_id FROM professors WHERE user_id = ?)", [id]);
+      await query("DELETE FROM professors WHERE user_id = ?", [id]);
+      await query("DELETE FROM users WHERE user_id = ? AND role = 'professor'", [id]);
+      return res.json({ success: true, message: "Professor deleted successfully" });
+    } catch (error: any) {
+      console.error("Failed to delete professor:", error);
+      return res.status(500).json({ success: false, message: error?.sqlMessage || "Server error" });
+    }
+  },
+);
+
 // POST /api/users/professors/:id/sections
 router.post(
   "/professors/:id/sections",
@@ -1466,19 +1491,7 @@ router.post(
         "course_sections",
         "section_name",
       );
-      const hasRoomNumberColumn = await columnExists(
-        "course_sections",
-        "room_number",
-      );
-      const hasRoomColumn = await columnExists("course_sections", "room");
-      const hasScheduleTimeColumn = await columnExists(
-        "course_sections",
-        "schedule_time",
-      );
-      const hasScheduleColumn = await columnExists(
-        "course_sections",
-        "schedule",
-      );
+      const hasRoomIdColumn = await columnExists("course_sections", "room_id");
       const columns = ["course_id"];
       const values: any[] = [courseId];
       if (hasSectionNameColumn) {
@@ -1488,20 +1501,16 @@ router.post(
       columns.push("professor_id", "semester", "year");
       values.push(professor.professor_id, semester, year);
 
-      if (hasRoomNumberColumn) {
-        columns.push("room_number");
-        values.push(room || null);
-      } else if (hasRoomColumn) {
-        columns.push("room");
-        values.push(room || null);
-      }
-
-      if (hasScheduleTimeColumn) {
-        columns.push("schedule_time");
-        values.push(scheduleStr || null);
-      } else if (hasScheduleColumn) {
-        columns.push("schedule");
-        values.push(scheduleStr || null);
+      // Look up room_id from room number if room_id column exists
+      if (hasRoomIdColumn && room) {
+        const roomRow = await safeList(
+          "SELECT room_id FROM rooms WHERE room_number = ? LIMIT 1",
+          [room],
+        );
+        if (roomRow.length > 0) {
+          columns.push("room_id");
+          values.push(roomRow[0].room_id);
+        }
       }
 
       const insertSql = `INSERT INTO course_sections (${columns.join(", ")}) VALUES (${columns
@@ -1564,20 +1573,26 @@ router.put(
       }
 
       const hasSectionNameCol = await columnExists("course_sections", "section_name");
-      const hasRoomNumberCol = await columnExists("course_sections", "room_number");
-      const hasRoomCol = await columnExists("course_sections", "room");
-      const hasSchedTimeCol = await columnExists("course_sections", "schedule_time");
-      const hasSchedCol = await columnExists("course_sections", "schedule");
+      const hasRoomIdCol = await columnExists("course_sections", "room_id");
 
       const sets: string[] = [];
       const vals: any[] = [];
       if (hasSectionNameCol) { sets.push("section_name = ?"); vals.push(sectionName); }
       sets.push("semester = ?", "year = ?");
       vals.push(semester, year);
-      if (hasRoomNumberCol) { sets.push("room_number = ?"); vals.push(room || null); }
-      else if (hasRoomCol) { sets.push("room = ?"); vals.push(room || null); }
-      if (hasSchedTimeCol) { sets.push("schedule_time = ?"); vals.push(scheduleStr); }
-      else if (hasSchedCol) { sets.push("schedule = ?"); vals.push(scheduleStr); }
+      if (hasRoomIdCol && room) {
+        const roomRow = await safeList(
+          "SELECT room_id FROM rooms WHERE room_number = ? LIMIT 1",
+          [room],
+        );
+        if (roomRow.length > 0) {
+          sets.push("room_id = ?");
+          vals.push(roomRow[0].room_id);
+        }
+      } else if (hasRoomIdCol) {
+        sets.push("room_id = ?");
+        vals.push(null);
+      }
 
       vals.push(req.params.sectionId, professor.professor_id);
       await query(

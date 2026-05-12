@@ -304,11 +304,14 @@ router.get(
 
         sections = await query(
           `SELECT cs.section_id, c.course_code, c.course_title,
-                cs.room_number, cs.schedule_time, cs.semester, cs.year,
+                COALESCE(r.room_number, '') AS room_number,
+                COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
+                cs.semester, cs.year,
                 (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled,
                 COALESCE(gec.is_enabled, 0) AS grade_entry_enabled
          FROM course_sections cs
          JOIN courses c ON cs.course_id = c.course_id
+         LEFT JOIN rooms r ON cs.room_id = r.room_id
          LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id
          WHERE cs.professor_id = ?
          ORDER BY cs.year DESC, cs.semester`,
@@ -318,10 +321,13 @@ router.get(
         // Fallback without enrollment count if tables missing
         sections = await query(
           `SELECT cs.section_id, c.course_code, c.course_title,
-                cs.room_number, cs.schedule_time, cs.semester, cs.year,
+                COALESCE(r.room_number, '') AS room_number,
+                COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
+                cs.semester, cs.year,
                 0 AS enrolled, 0 AS grade_entry_enabled
          FROM course_sections cs
          JOIN courses c ON cs.course_id = c.course_id
+         LEFT JOIN rooms r ON cs.room_id = r.room_id
          WHERE cs.professor_id = ?
          ORDER BY cs.year DESC, cs.semester`,
           [profId],
