@@ -416,6 +416,36 @@ export default function ProfessorAttendance() {
             </p>
           )}
 
+          {!loadingStudents && selectedSectionId && students.length > 0 && (
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <span className="text-sm font-medium text-gray-700">Apply to all:</span>
+              <select
+                id="applyAllStatus"
+                className="rounded-lg border px-3 py-1.5 text-sm"
+                defaultValue="Absent"
+              >
+                <option value="Present">Present</option>
+                <option value="Absent">Absent</option>
+                <option value="Late">Late</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  const sel = document.getElementById("applyAllStatus") as HTMLSelectElement;
+                  const status = sel.value as AttendanceRecord["status"];
+                  setStatuses((current) => {
+                    const next = { ...current };
+                    students.forEach((s) => { next[s.student_id] = status; });
+                    return next;
+                  });
+                }}
+                className="rounded-lg bg-gray-700 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800"
+              >
+                Apply
+              </button>
+            </div>
+          )}
+
           <div className="space-y-3">
             {students.map((student) => (
               <div

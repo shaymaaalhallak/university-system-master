@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { FacultyFormValues, FacultyMeta } from "./faculty-types";
 
 type Props = {
@@ -23,6 +25,7 @@ export default function FacultyForm({
   autoGenerateCredentials = false,
   loading = false,
 }: Props) {
+  const [showPassword, setShowPassword] = useState(false);
   const update = (key: keyof FacultyFormValues, v: string) =>
     onChange({ ...value, [key]: v });
 
@@ -51,13 +54,22 @@ export default function FacultyForm({
           />
         )}
         {includePassword && !autoGenerateCredentials ? (
-          <input
-            className="border border-[#DED7CB] bg-white rounded-lg p-2"
-            placeholder="Password"
-            type="password"
-            value={value.password}
-            onChange={(e) => update("password", e.target.value)}
-          />
+          <div className="relative">
+            <input
+              className="border border-[#DED7CB] bg-white rounded-lg p-2 w-full pr-10"
+              placeholder="Password"
+              type={showPassword ? "text" : "password"}
+              value={value.password}
+              onChange={(e) => update("password", e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
         ) : (
           <input
             className="border border-[#DED7CB] bg-white rounded-lg p-2"
