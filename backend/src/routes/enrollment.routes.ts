@@ -64,12 +64,15 @@ router.get(
       SELECT e.enrollment_id, e.student_id, e.section_id, e.status, e.enrolled_at,
              u.first_name, u.last_name, u.email,
              c.course_code, c.course_title, c.credits,
-             cs.semester, cs.year, cs.room_number, cs.schedule_time
+             cs.semester, cs.year,
+             COALESCE(r.room_number, '') AS room_number,
+             COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time
       FROM enrollments e
       JOIN students s ON e.student_id = s.student_id
       JOIN users u ON s.user_id = u.user_id
       JOIN course_sections cs ON e.section_id = cs.section_id
       JOIN courses c ON cs.course_id = c.course_id
+      LEFT JOIN rooms r ON cs.room_id = r.room_id
       WHERE 1=1
     `;
       const params: any[] = [];
@@ -112,7 +115,9 @@ router.get(
       const rows = await query(
         `SELECT e.enrollment_id, e.section_id, e.status, e.enrolled_at,
               c.course_id, c.course_code, c.course_title, c.credits,
-              cs.semester, cs.year, cs.room_number, cs.schedule_time,
+              cs.semester, cs.year,
+              COALESCE(r.room_number, '') AS room_number,
+              COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
               u.first_name AS prof_first, u.last_name AS prof_last,
               g.letter_grade, g.total_score
        FROM enrollments e
@@ -120,6 +125,7 @@ router.get(
        JOIN courses c ON cs.course_id = c.course_id
        JOIN professors p ON cs.professor_id = p.professor_id
        JOIN users u ON p.user_id = u.user_id
+       LEFT JOIN rooms r ON cs.room_id = r.room_id
        LEFT JOIN grades g ON g.student_id = e.student_id AND g.section_id = e.section_id
        WHERE e.student_id = ?
        ORDER BY cs.year DESC, cs.semester`,

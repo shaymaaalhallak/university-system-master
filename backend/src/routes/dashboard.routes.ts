@@ -57,13 +57,15 @@ router.get(
       try {
         enrollments = await query(
           `SELECT c.course_code, c.course_title, c.credits,
-                cs.room_number, cs.schedule_time,
+                COALESCE(r.room_number, '') AS room_number,
+                COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
                 u.first_name AS prof_first, u.last_name AS prof_last
          FROM enrollments e
          JOIN course_sections cs ON e.section_id = cs.section_id
          JOIN courses c ON cs.course_id = c.course_id
          JOIN professors p ON cs.professor_id = p.professor_id
          JOIN users u ON p.user_id = u.user_id
+         LEFT JOIN rooms r ON cs.room_id = r.room_id
          WHERE e.student_id = ? AND e.status = 'active'
          ORDER BY c.course_code`,
           [student_id],

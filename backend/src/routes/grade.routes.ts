@@ -380,11 +380,14 @@ router.get(
       }
 
       const sectionRows = await query(
-        `SELECT cs.section_id, cs.course_id, cs.semester, cs.year, cs.room_number, cs.schedule_time,
+        `SELECT cs.section_id, cs.course_id, cs.semester, cs.year,
+              COALESCE(r.room_number, '') AS room_number,
+              COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
               c.course_code, c.course_title,
               gec.entry_mode, gec.close_at, gec.is_enabled
        FROM course_sections cs
        JOIN courses c ON cs.course_id = c.course_id
+       LEFT JOIN rooms r ON cs.room_id = r.room_id
        LEFT JOIN grade_entry_control gec ON gec.section_id = cs.section_id
        WHERE cs.section_id = ?`,
         [sectionId],

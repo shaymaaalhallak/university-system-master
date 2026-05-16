@@ -61,13 +61,19 @@ router.post("/config", verifyToken, requireRole("admin"), async (req: Request, r
     if (!program_id || price_per_credit === undefined) {
       return res.status(400).json({ success: false, message: "program_id and price_per_credit are required" });
     }
+    if (Number(price_per_credit) <= 0) {
+      return res.status(400).json({ success: false, message: "price_per_credit must be greater than 0" });
+    }
+    if (!effective_from || !effective_to) {
+      return res.status(400).json({ success: false, message: "effective_from and effective_to are required" });
+    }
     await query(
       `INSERT INTO program_fee_settings (program_id, price_per_credit, effective_from, effective_to)
        VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE price_per_credit = VALUES(price_per_credit),
                                effective_from = VALUES(effective_from),
                                effective_to = VALUES(effective_to)`,
-      [program_id, price_per_credit, effective_from || null, effective_to || null],
+      [program_id, price_per_credit, effective_from, effective_to],
     );
     return res.json({ success: true, message: "Fee configuration saved" });
   } catch (error) {

@@ -100,7 +100,8 @@ router.get("/sections", verifyToken, async (req: Request, res: Response) => {
       : "0 AS grade_entry_enabled";
     let sql = `
       SELECT cs.section_id, cs.course_id, cs.professor_id, cs.semester, cs.year,
-             cs.room_number, cs.schedule_time,
+             COALESCE(r.room_number, '') AS room_number,
+             COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
              c.course_code, c.course_title, c.credits,
              u.first_name, u.last_name,
              (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled_count,
@@ -109,6 +110,7 @@ router.get("/sections", verifyToken, async (req: Request, res: Response) => {
       JOIN courses c ON cs.course_id = c.course_id
       JOIN professors p ON cs.professor_id = p.professor_id
       JOIN users u ON p.user_id = u.user_id
+      LEFT JOIN rooms r ON cs.room_id = r.room_id
       ${gradeJoin}
       WHERE 1=1
     `;
@@ -1089,11 +1091,22 @@ router.post(
         semester,
         year,
         roomNumber,
-        scheduleTime,
       } = req.body;
+      const columns = ["course_id", "professor_id", "semester", "year"];
+      const values: any[] = [courseId, professorId, semester, year];
+      if (roomNumber) {
+        const roomRows: any[] = await query(
+          "SELECT room_id FROM rooms WHERE room_number = ? LIMIT 1",
+          [roomNumber],
+        );
+        if (roomRows.length > 0) {
+          columns.push("room_id");
+          values.push(roomRows[0].room_id);
+        }
+      }
       const result: any = await query(
-        "INSERT INTO course_sections (course_id, professor_id, semester, year, room_number, schedule_time) VALUES (?, ?, ?, ?, ?, ?)",
-        [courseId, professorId, semester, year, roomNumber, scheduleTime],
+        `INSERT INTO course_sections (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+        values,
       );
       // Auto-create grade_entry_control row (disabled by default)
       await query(

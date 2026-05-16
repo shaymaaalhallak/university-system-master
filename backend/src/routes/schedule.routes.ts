@@ -29,7 +29,9 @@ router.get("/my", verifyToken, async (req: Request, res: Response) => {
       if (!studentId) return res.status(404).json({ success: false, message: "Student profile not found" });
 
       rows = await query(
-        `SELECT cs.section_id, cs.room_number, cs.schedule_time,
+        `SELECT cs.section_id,
+                COALESCE(r.room_number, '') AS room_number,
+                COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
                 c.course_code, c.course_title, c.credits,
                 u.first_name AS prof_first, u.last_name AS prof_last,
                 cs.semester, cs.year
@@ -38,6 +40,7 @@ router.get("/my", verifyToken, async (req: Request, res: Response) => {
          JOIN courses c ON cs.course_id = c.course_id
          JOIN professors p ON cs.professor_id = p.professor_id
          JOIN users u ON p.user_id = u.user_id
+         LEFT JOIN rooms r ON cs.room_id = r.room_id
          WHERE e.student_id = ? AND e.status = 'active'
          ORDER BY c.course_code`,
         [studentId]
@@ -47,12 +50,15 @@ router.get("/my", verifyToken, async (req: Request, res: Response) => {
       if (!profId) return res.status(404).json({ success: false, message: "Professor profile not found" });
 
       rows = await query(
-        `SELECT cs.section_id, cs.room_number, cs.schedule_time,
+        `SELECT cs.section_id,
+                COALESCE(r.room_number, '') AS room_number,
+                COALESCE((SELECT GROUP_CONCAT(CONCAT(LEFT(ss.day_of_week, 3), ' ', TIME_FORMAT(ss.start_time, '%H:%i'), '-', TIME_FORMAT(ss.end_time, '%H:%i')) SEPARATOR ', ') FROM section_schedule ss WHERE ss.section_id = cs.section_id), '') AS schedule_time,
                 c.course_code, c.course_title, c.credits,
                 cs.semester, cs.year,
                 (SELECT COUNT(*) FROM enrollments e WHERE e.section_id = cs.section_id AND e.status = 'active') AS enrolled_count
          FROM course_sections cs
          JOIN courses c ON cs.course_id = c.course_id
+         LEFT JOIN rooms r ON cs.room_id = r.room_id
          WHERE cs.professor_id = ?
          ORDER BY c.course_code`,
         [profId]

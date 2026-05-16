@@ -67,7 +67,8 @@ export default function AdminFeeConfiguration() {
   };
 
   const handleSave = async () => {
-    if (!selectedProgram || !pricePerCredit) return;
+    if (!selectedProgram || !pricePerCredit || Number(pricePerCredit) <= 0) return;
+    if (!effectiveFrom || !effectiveTo) return;
     try {
       const res = await api.post<any>("/fees/config", {
         program_id: Number(selectedProgram),
@@ -150,7 +151,7 @@ export default function AdminFeeConfiguration() {
               <input
                 type="number"
                 step="0.01"
-                min="0"
+                min="0.01"
                 value={pricePerCredit}
                 onChange={(e) => setPricePerCredit(e.target.value)}
                 className="w-full rounded-lg border border-[#DED7CB] px-3 py-2 text-sm focus:ring-2 focus:ring-[#7A263A] focus:border-[#7A263A]"
@@ -161,6 +162,7 @@ export default function AdminFeeConfiguration() {
               <input
                 type="date"
                 value={effectiveFrom}
+                required
                 onChange={(e) => {
                   setEffectiveFrom(e.target.value);
                   if (effectiveTo && e.target.value >= effectiveTo) setEffectiveTo("");
@@ -174,6 +176,7 @@ export default function AdminFeeConfiguration() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Effective To</label>
               <input
                 type="date"
+                required
                 value={effectiveTo}
                 onChange={(e) => setEffectiveTo(e.target.value)}
                 min={effectiveFrom || minFrom}
@@ -182,7 +185,7 @@ export default function AdminFeeConfiguration() {
             </div>
             <button
               onClick={handleSave}
-              disabled={!selectedProgram || !pricePerCredit}
+              disabled={!selectedProgram || !pricePerCredit || !effectiveFrom || !effectiveTo}
               className="flex items-center justify-center gap-2 bg-[#7A263A] text-white px-4 py-2 rounded-lg hover:bg-[#6A1F31] transition disabled:opacity-50"
             >
               <Save size={18} />
