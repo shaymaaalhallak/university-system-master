@@ -85,5 +85,12 @@ Through this project, I gained experience in:
 
 ## Some Photos
 <img width="2096" height="1402" alt="Screenshot 2026-05-23 172258" src="https://github.com/user-attachments/assets/57dceedb-7694-420f-a51e-2415cd08ddf6" />
+<img width="2701" height="1480" alt="Screenshot 2026-05-23 171925" src="https://github.com/user-attachments/assets/f873378d-107b-4ca3-9f55-fe7e28714686" />
+<img width="2074" height="1090" alt="Screenshot 2026-05-23 171944" src="https://github.com/user-attachments/assets/80fe49af-4532-462d-9f2e-bc500c7fd36a" />
+<img width="2108" height="1536" alt="Screenshot 2026-05-23 172914" src="https://github.com/user-attachments/assets/473c8814-196c-4344-8ff6-fcfa4d5ffece" />
+<img width="1976" height="1271" alt="Screenshot 2026-05-23 174041" src="https://github.com/user-attachments/assets/a3047c3a-f44f-44d8-8555-df35eb683449" />
+
+
+
 
 
