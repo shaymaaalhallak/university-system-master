@@ -1,46 +1,89 @@
 # University Management System (UMS)
 
-## Quick Start
 
-### Prerequisites
+A web-based University Management System designed to streamline academic administration by managing students, courses, and academic records through an intuitive and responsive interface.
 
-- Node.js 18+
-- MySQL 8+ (create database `university_db`)
+## Overview
 
-### Backend Setup
+The University Management System is a modern web application that helps educational institutions organize and manage academic information efficiently. The platform provides centralized access to student records, course information, and administrative data while improving workflow and data organization.
 
-1. `cd backend`
-2. Copy `.env.example` to `.env` and configure MySQL credentials:
-   ```
-   DB_HOST=localhost
-   DB_USER=root
-   DB_PASSWORD=yourpassword
-   DB_NAME=university_db
-   JWT_SECRET=your-super-secret-jwt-key
-   ```
-3. `npm install`
-4. `npm run dev` → http://localhost:5000/api/health
+## Features
 
-### Frontend Setup
+* Student Management
 
-1. `cd frontend`
-2. `npm install`
-3. `npm run dev` → http://localhost:3000
+  * Add, update, view, and manage student records
+  * Maintain academic and personal information
 
-### One-Click Start
+* Course Management
 
-Double-click `start-all.bat` (Windows)
+  * Create and manage courses
+  * View course details and assignments
 
-## API Proxy Fixed
+* Academic Records
 
-- Frontend `/api/*` → Backend `/api/*` (port 5000)
-- Auto-fallbacks: 127.0.0.1:5000, localhost:5000
-- Error 503 only if backend down
+  * Track student enrollment and academic data
+  * Organize records in a structured format
 
-## Troubleshooting
+* Responsive User Interface
 
-**\"API proxy failed\"?** → Start backend: `start-backend.bat`
-**DB connection failed?** → Check MySQL + backend/.env
-**Port conflicts?** → Backend 5000, Frontend auto 3000+
+  * Modern and user-friendly design
+  * Optimized for different screen sizes
 
-Enjoy! 🚀
+* Data Management
+
+  * Efficient handling of structured academic datasets
+  * Improved data organization and accessibility
+
+## Technologies Used
+
+### Frontend
+
+* React.js
+* TypeScript
+* HTML5
+* CSS3
+
+### Tools
+
+* Git
+* GitHub
+* Visual Studio Code
+
+## Project Structure
+
+```bash
+src/
+├── components/
+├── pages/
+├── services/
+├── assets/
+├── hooks/
+├── types/
+└── App.tsx
+```
+
+## Key Learning Outcomes
+
+Through this project, I gained experience in:
+
+* Building scalable React applications
+* Developing reusable components
+* Working with TypeScript for type safety
+* Managing structured academic datasets
+* Implementing modern UI design principles
+* Improving application maintainability through modular architecture
+
+## Future Improvements
+
+* Authentication and authorization system
+* Role-based access control (Admin, Instructor, Student)
+* Grade management module
+* Attendance tracking
+* Course registration system
+* Backend API integration
+* Database support
+
+## Some Photos
+<img width="2096" height="1402" alt="Screenshot 2026-05-23 172258" src="https://github.com/user-attachments/assets/57dceedb-7694-420f-a51e-2415cd08ddf6" />
+
+
